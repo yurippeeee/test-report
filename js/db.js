@@ -1,6 +1,7 @@
-/* IndexedDB 永続化（プロジェクト / エビデンス画像） */
+/* IndexedDB 永続化（プロジェクト / エビデンス：画像・動画・リンク） */
 (function (TR) {
   'use strict';
+  const U = TR.util;
 
   const DB_NAME = 'test-report-app';
   const DB_VERSION = 1;
@@ -44,7 +45,7 @@
       Promise.resolve(fn(t)).then((r) => { result = r; }, reject);
       t.oncomplete = () => resolve(result);
       t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error || new Error('トランザクションが中断されました（容量不足の可能性があります）'));
+      t.onabort = () => reject(t.error || new Error('保存が中断されました（ブラウザの保存容量が不足している可能性があります）'));
     });
   }
 
@@ -86,20 +87,42 @@
     listImageKeys(projectId) {
       return tx(['images'], 'readonly', (t) => reqP(t.objectStore('images').index('projectId').getAllKeys(projectId)));
     },
+
+    /** どの項目からも参照されていないエビデンスを削除（元に戻す用に残していたもの） */
+    async cleanupOrphans(project) {
+      const used = new Set(project.items.flatMap((it) => it.evidence || []));
+      const keys = await DB.listImageKeys(project.id);
+      const orphans = keys.filter((k) => !used.has(k));
+      if (orphans.length) await DB.deleteImages(orphans);
+      return orphans.length;
+    },
   });
 
-  /* ---------- 画像 ObjectURL キャッシュ ---------- */
+  /* ---------- エビデンス ObjectURL キャッシュ ---------- */
   const thumbUrls = new Map();
   const fullUrls = new Map();
+  const frameUrls = new Map();
   const meta = new Map();
+
+  function setMeta(rec) {
+    const m = {
+      kind: rec.kind || 'image', name: rec.name, type: rec.type, width: rec.width, height: rec.height,
+      duration: rec.duration || 0, url: rec.url || '', size: rec.blob ? rec.blob.size : 0,
+      frameCount: (rec.frames || []).length,
+    };
+    meta.set(rec.id, m);
+    return m;
+  }
 
   TR.imgCache = {
     async thumb(id) {
       if (thumbUrls.has(id)) return thumbUrls.get(id);
       const rec = await DB.getImage(id);
       if (!rec) return '';
-      meta.set(id, { name: rec.name, type: rec.type, width: rec.width, height: rec.height });
-      const url = URL.createObjectURL(rec.thumb || rec.blob);
+      setMeta(rec);
+      const src = rec.thumb || rec.blob;
+      if (!src) return '';
+      const url = URL.createObjectURL(src);
       thumbUrls.set(id, url);
       return url;
     },
@@ -107,48 +130,123 @@
       if (fullUrls.has(id)) return fullUrls.get(id);
       const rec = await DB.getImage(id);
       if (!rec) return '';
-      meta.set(id, { name: rec.name, type: rec.type, width: rec.width, height: rec.height });
+      setMeta(rec);
+      if (!rec.blob) return '';
       const url = URL.createObjectURL(rec.blob);
       fullUrls.set(id, url);
       return url;
     },
+    /** 動画の静止画（4コマ）URL 配列 */
+    async frames(id) {
+      if (frameUrls.has(id)) return frameUrls.get(id);
+      const rec = await DB.getImage(id);
+      if (!rec) return [];
+      setMeta(rec);
+      const urls = (rec.frames || []).map((b) => URL.createObjectURL(b));
+      frameUrls.set(id, urls);
+      return urls;
+    },
     meta(id) { return meta.get(id); },
     async info(id) {
-      if (!meta.has(id)) await TR.imgCache.thumb(id);
-      return meta.get(id) || { name: '' };
+      if (!meta.has(id)) {
+        const rec = await DB.getImage(id);
+        if (!rec) return { kind: 'image', name: '' };
+        setMeta(rec);
+      }
+      return meta.get(id);
     },
     forget(id) {
       if (thumbUrls.has(id)) { URL.revokeObjectURL(thumbUrls.get(id)); thumbUrls.delete(id); }
       if (fullUrls.has(id)) { URL.revokeObjectURL(fullUrls.get(id)); fullUrls.delete(id); }
+      if (frameUrls.has(id)) { frameUrls.get(id).forEach((u) => URL.revokeObjectURL(u)); frameUrls.delete(id); }
       meta.delete(id);
     },
-    /** <img data-thumb="id"> / <img data-full="id"> に src を流し込む */
+    /** <img data-thumb="id"> / <img data-full="id"> / <img data-frame="id:n"> に src を流し込む */
     hydrate(root) {
-      TR.util.$$('img[data-thumb]:not([src])', root).forEach(async (el) => {
+      U.$$('img[data-thumb]:not([src])', root).forEach(async (el) => {
         el.src = await TR.imgCache.thumb(el.dataset.thumb);
       });
-      TR.util.$$('img[data-full]:not([src])', root).forEach(async (el) => {
+      U.$$('img[data-full]:not([src])', root).forEach(async (el) => {
         el.src = await TR.imgCache.full(el.dataset.full);
+      });
+      U.$$('img[data-frame]:not([src])', root).forEach(async (el) => {
+        const [id, n] = el.dataset.frame.split(':');
+        const urls = await TR.imgCache.frames(id);
+        if (urls[+n]) el.src = urls[+n];
       });
     },
   };
 
-  /** File/Blob からエビデンス画像レコードを作成して保存し、id を返す */
-  TR.addImageBlob = async function (projectId, blob, name) {
-    const type = blob.type || TR.util.typeFromExt(name || '');
-    const info = await TR.util.makeThumb(blob);
+  /** ファイル（画像・動画）をエビデンスとして保存し、id を返す */
+  TR.addEvidenceFile = async function (projectId, blob, name) {
+    const type = blob.type || U.typeFromExt(name || '');
     const rec = {
-      id: TR.util.uid(),
+      id: U.uid(),
       projectId,
-      name: name || `evidence_${TR.util.nowStamp()}.${TR.util.extFromType(type)}`,
+      kind: 'image',
+      name: name || `evidence_${U.nowStamp()}.${U.extFromType(type)}`,
       type,
       blob,
-      thumb: info.thumb,
-      width: info.width,
-      height: info.height,
+      createdAt: new Date().toISOString(),
+    };
+    if (U.isVideo(type, name)) {
+      rec.kind = 'video';
+      const info = await U.videoInfo(blob);
+      rec.duration = info ? info.duration : 0;
+      rec.width = info ? info.width : 0;
+      rec.height = info ? info.height : 0;
+      rec.frames = info ? info.frames.filter(Boolean) : [];
+      rec.thumb = await U.makeVideoThumb(rec.frames[0], rec.duration);
+    } else {
+      const info = await U.makeThumb(blob);
+      rec.thumb = info.thumb;
+      rec.width = info.width;
+      rec.height = info.height;
+    }
+    await DB.putImage(rec);
+    return rec.id;
+  };
+
+  /** リンク（大きな動画の保管先など）をエビデンスとして保存 */
+  TR.addEvidenceLink = async function (projectId, url, title) {
+    const rec = {
+      id: U.uid(),
+      projectId,
+      kind: 'link',
+      name: title || url,
+      url,
+      type: 'text/uri-list',
+      thumb: await U.makeLinkThumb(title || url, url),
       createdAt: new Date().toISOString(),
     };
     await DB.putImage(rec);
     return rec.id;
+  };
+
+  /** 旧名（互換用） */
+  TR.addImageBlob = TR.addEvidenceFile;
+
+  /**
+   * 納品物で使うエビデンスの相対パス（PDF の表記と閲覧用 HTML の evidence フォルダで共通）
+   * @returns Map<id, {path, kind, name, ext}>
+   */
+  TR.evidencePaths = async function (project) {
+    const map = new Map();
+    const usedDirs = new Set();
+    for (let i = 0; i < project.items.length; i++) {
+      const it = project.items[i];
+      let dir = U.safeName(it.no, `row${i + 1}`);
+      if (usedDirs.has(dir)) dir = `${dir}_${i + 1}`;
+      usedDirs.add(dir);
+      let k = 0;
+      for (const id of it.evidence || []) {
+        const m = await TR.imgCache.info(id);
+        if (m.kind === 'link') { map.set(id, { path: '', kind: 'link', name: m.name, url: m.url }); continue; }
+        k++;
+        const ext = U.extFromType(m.type, m.name);
+        map.set(id, { path: `evidence/${dir}/${dir}_${U.pad(k)}.${ext}`, kind: m.kind, name: m.name, ext });
+      }
+    }
+    return map;
   };
 })(window.TR);

@@ -27,16 +27,19 @@
           <div class="menu-group">プロジェクト</div>
           <button data-action="project-new" role="menuitem">新規プロジェクト</button>
           <button data-action="project-edit" role="menuitem">プロジェクト情報の編集（表紙）</button>
-          <button data-action="project-delete" role="menuitem" class="danger">このプロジェクトを削除</button>
+          <button data-action="snippets" role="menuitem">📋 共通手順の管理</button>
+          <button data-action="renumber" role="menuitem">ID を並び順で振り直し</button>
           <button data-action="project-sample" role="menuitem">サンプルプロジェクトを作成</button>
+          <button data-action="project-delete" role="menuitem" class="danger">このプロジェクトを削除</button>
           <div class="menu-group">ファイル（チーム間の受け渡し）</div>
           <button data-action="file-save" role="menuitem">💾 プロジェクトを保存（.zip）</button>
           <button data-action="file-open" role="menuitem">📂 プロジェクトを読み込み（.zip）</button>
           <button data-action="import-excel" role="menuitem">📥 Excel 仕様書を取り込み</button>
-          <div class="menu-group">納品用の出力</div>
-          <button data-action="out-pdf" role="menuitem">🖨 PDF 報告書（印刷）</button>
-          <button data-action="out-html" role="menuitem">🌐 閲覧専用 HTML</button>
-          <button data-action="out-excel" role="menuitem">📊 Excel ＋ エビデンス（.zip）</button>
+          <div class="menu-group">納品物</div>
+          <button data-action="out-pdf" role="menuitem">📕 製本用 PDF（印刷）</button>
+          <button data-action="out-html" role="menuitem">🌐 閲覧用 HTML（動画も再生可）</button>
+          <div class="menu-group">ヘルプ</div>
+          <button data-action="shortcuts" role="menuitem">⌨ キーボード操作</button>
         </div>
       </div>
     </header>
@@ -56,28 +59,41 @@
             <select id="fResult" aria-label="判定で絞り込み"></select>
             <select id="fAssignee" aria-label="担当で絞り込み"></select>
             <input id="fQuery" type="search" placeholder="キーワード検索" aria-label="キーワード検索">
-            <label class="chk"><input id="fWarn" type="checkbox"> 要確認のみ</label>
+            <label class="chk"><input id="fWarn" type="checkbox"> ⚠ 要確認のみ</label>
             <button id="fClear" class="btn btn-ghost btn-sm" type="button">クリア</button>
           </div>
           <div class="toolbar-right">
             <span id="listCount" class="muted"></span>
-            <button id="addItemBtn" class="btn btn-primary" type="button">＋ 項目を追加</button>
+            <button id="addItemBtn" class="btn btn-primary only-mobile" type="button">＋ 追加</button>
           </div>
         </div>
-        <div class="table-wrap">
+
+        <div id="gridTools" class="grid-tools">
+          <div class="seg" role="group" aria-label="表示する列">
+            <span class="seg-label">列：</span>
+            <button data-preset="create" title="仕様書づくり：手順・期待結果を中心に表示">作成</button>
+            <button data-preset="run" title="試験実施：判定・実績・エビデンスを中心に表示">実施</button>
+            <button data-preset="all">すべて</button>
+          </div>
+          <div class="tool-group">
+            <button class="btn btn-sm btn-primary" data-tool="add" title="選択行の下に追加">＋ 行を追加</button>
+            <button class="btn btn-sm" data-tool="dup" title="選択行を複製">複製</button>
+            <button class="btn btn-sm" data-tool="bulk" title="選択行に同じ値を入力">一括入力</button>
+            <button class="btn btn-sm" data-tool="del" title="選択行を削除">削除</button>
+          </div>
+          <div class="tool-group">
+            <button class="btn btn-sm" data-tool="undo" title="元に戻す (Ctrl+Z)" disabled>↶ 元に戻す</button>
+            <button class="btn btn-sm" data-tool="redo" title="やり直し (Ctrl+Y)" disabled>↷</button>
+          </div>
+          <div class="tool-group">
+            <button class="btn btn-sm" data-tool="detail" title="詳細パネル (Ctrl+Enter)">詳細・エビデンス</button>
+            <button class="btn btn-sm btn-ghost" data-tool="help" title="キーボード操作">⌨</button>
+          </div>
+        </div>
+        <div id="gridHost" class="grid-host"></div>
+
+        <div id="cardList" class="table-wrap" hidden>
           <table class="items">
-            <thead>
-              <tr>
-                <th class="c-no">ID</th>
-                <th class="c-major">大項目</th>
-                <th class="c-minor">小項目</th>
-                <th class="c-exp">期待結果</th>
-                <th class="c-res">判定</th>
-                <th class="c-asg">担当</th>
-                <th class="c-date">実施日</th>
-                <th class="c-ev">エビデンス</th>
-              </tr>
-            </thead>
             <tbody id="itemsBody"></tbody>
           </table>
           <div id="listEmpty" class="empty" hidden></div>
@@ -97,7 +113,11 @@
       <button class="lb-close" data-lb="close" aria-label="閉じる">✕</button>
     </div>
     <button class="lb-nav lb-prev" data-lb="prev" aria-label="前の画像">‹</button>
-    <div class="lb-stage"><img id="lbImg" alt=""></div>
+    <div class="lb-stage">
+      <img id="lbImg" alt="">
+      <video id="lbVideo" controls playsinline hidden></video>
+      <div id="lbLink" class="lb-link" hidden></div>
+    </div>
     <button class="lb-nav lb-next" data-lb="next" aria-label="次の画像">›</button>
   </div>
 
@@ -117,6 +137,7 @@
   <script src="js/exporter.js"></script>
   <script src="js/report.js"></script>
   <script src="js/viewer.js"></script>
+  <script src="js/grid.js"></script>
   <script src="js/detail.js"></script>
   <script src="js/app.js"></script>
 </body>

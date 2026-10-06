@@ -30,10 +30,11 @@ body.report-mode #app { display: none; }
 .rp-break { break-before: page; page-break-before: always; }
 .rp-doc > .rp-break:first-child { break-before: auto; page-break-before: auto; }
 .rp-summary-text { margin: 0 0 10px; }
-.rp-kpis { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 8px 0; }
+.rp-kpis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin: 8px 0; }
 .rp-kpis div { border: 1px solid #ccc; border-radius: 6px; padding: 4px 6px; text-align: center; }
 .rp-kpis span { display: block; font-size: 8.5pt; color: #555; }
 .rp-kpis b { font-size: 15pt; }
+.rp-kpis .k-na b { color: #475569; }
 .rp-kpis .k-ok b { color: #15803d; } .rp-kpis .k-ng b { color: #b91c1c; } .rp-kpis .k-hold b { color: #b45309; } .rp-kpis .k-todo b { color: #6b7280; }
 .rp-stack { height: 10px; }
 .rp-note { font-size: 9pt; color: #444; }
@@ -63,6 +64,13 @@ body.report-mode #app { display: none; }
 .rp-ev img { max-width: 100%; max-height: 85mm; object-fit: contain; cursor: zoom-in; }
 .rp-ev figcaption { font-size: 8pt; color: #555; text-align: left; word-break: break-all; }
 .rp-noev { font-size: 9pt; color: #666; margin: 2mm 0 0; }
+.rp-na { font-size: 8pt; color: #475569; margin-top: 2px; }
+.rp-path { font-family: ui-monospace, Consolas, monospace; font-size: 7.5pt; color: #333; }
+.rp-video { grid-column: 1 / -1; }
+.rp-frames { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; }
+.rp-frames img { width: 100%; max-height: 45mm; object-fit: contain; background: #111; }
+.rp-hint { display: block; font-size: 7.5pt; color: #666; }
+.rp-link { grid-column: 1 / -1; text-align: left; background: #f5f7ff; }
 
 @media (max-width: 760px) {
   .rp-doc { margin: 0; padding: 12px; box-shadow: none; }
@@ -89,6 +97,6 @@ body.report-mode #app { display: none; }
   .rp-cover { min-height: 255mm; break-after: page; page-break-after: always; }
   .rp-cover + .rp-break { break-before: auto; page-break-before: auto; }
   .rp-ev img { cursor: default; }
-  .rp-kpis { grid-template-columns: repeat(7, 1fr); }
+  .rp-kpis { grid-template-columns: repeat(8, 1fr); }
   .rp-evs { grid-template-columns: 1fr 1fr; }
 }

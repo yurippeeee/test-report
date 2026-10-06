@@ -77,15 +77,18 @@ window.TR = window.TR || {};
   };
 
   U.extFromType = function (type, name) {
-    const map = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/bmp': 'bmp', 'image/svg+xml': 'svg' };
-    if (map[type]) return map[type];
+    const map = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/bmp': 'bmp', 'image/svg+xml': 'svg',
+      'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/x-m4v': 'm4v', 'video/ogg': 'ogv', 'video/3gpp': '3gp' };
+    const base = String(type || '').split(';')[0];
+    if (map[base]) return map[base];
     const m = String(name || '').match(/\.([a-z0-9]+)$/i);
     return m ? m[1].toLowerCase() : 'png';
   };
 
   U.typeFromExt = function (name) {
     const ext = (String(name).match(/\.([a-z0-9]+)$/i) || [])[1] || '';
-    return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml' })[ext.toLowerCase()] || 'application/octet-stream';
+    return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
+      mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg', '3gp': 'video/3gpp' })[ext.toLowerCase()] || 'application/octet-stream';
   };
 
   U.download = function (blob, filename) {
@@ -178,9 +181,10 @@ window.TR = window.TR || {};
 
   /* ---------- 定数 ---------- */
 
-  TR.RESULTS = ['OK', 'NG', '保留', '未実施'];
-  TR.RESULT_CLASS = { OK: 'ok', NG: 'ng', '保留': 'hold', '未実施': 'todo' };
+  TR.RESULTS = ['OK', 'NG', '保留', '未実施', '対象外'];
+  TR.RESULT_CLASS = { OK: 'ok', NG: 'ng', '保留': 'hold', '未実施': 'todo', '対象外': 'na' };
   TR.DONE_RESULTS = ['OK', 'NG', '保留'];
+  TR.NA_REASONS = ['仕様変更により不要', '検証環境・機材なし', '他項目で確認済み', '今回のリリース対象外', 'その他'];
 
   /** 項目定義（標準構成）。aliases は Excel 取込時の列名推定に使用 */
   TR.FIELDS = [
@@ -192,6 +196,7 @@ window.TR = window.TR || {};
     { key: 'expected', label: '期待結果', multiline: true, aliases: ['期待結果', '期待値', '期待する結果', '確認内容', '想定結果'] },
     { key: 'actual', label: '実績', multiline: true, aliases: ['実績', '実施結果', '結果詳細', '実際の結果', '実結果'] },
     { key: 'result', label: '判定', aliases: ['判定', '結果', '合否', 'ステータス', '状態', 'result'] },
+    { key: 'naNote', label: '対象外理由', panel: false, aliases: ['対象外理由', '除外理由', '理由', '実施しない理由'] },
     { key: 'assignee', label: '担当', aliases: ['担当', '担当者', '実施者', '試験者', 'テスター'] },
     { key: 'date', label: '実施日', aliases: ['実施日', '日付', '試験日', 'テスト日', '確認日'] },
     { key: 'note', label: '備考', multiline: true, aliases: ['備考', 'メモ', 'コメント', '補足', '不具合no', 'チケット'] },
@@ -199,14 +204,16 @@ window.TR = window.TR || {};
 
   /** 判定の表記ゆれを吸収 */
   U.normalizeResult = function (v) {
-    const s = String(v == null ? '' : v).trim().toLowerCase();
+    const s = String(v == null ? '' : v).normalize('NFKC').trim().toLowerCase();
     if (!s) return '未実施';
-    if (['ok', '○', '〇', '◯', '合格', 'pass', 'passed', '済', 'good', 'o'].includes(s)) return 'OK';
-    if (['ng', '×', '✕', '✖', 'x', '不合格', 'fail', 'failed', 'ng有', 'bad'].includes(s)) return 'NG';
-    if (['保留', '△', 'pending', 'hold', 'skip', 'skipped', '保留中', 'ブロック', 'blocked', '-', '－'].includes(s)) return '保留';
-    if (['未実施', '未', 'not run', 'todo', '未着手'].includes(s)) return '未実施';
+    if (['ok', '○', '〇', '◯', '合格', 'pass', 'passed', '済', 'good', 'o', '1'].includes(s)) return 'OK';
+    if (['ng', '×', '✕', '✖', 'x', '不合格', 'fail', 'failed', 'ng有', 'bad', 'n', '2'].includes(s)) return 'NG';
+    if (['保留', '△', 'pending', 'hold', '保留中', 'ブロック', 'blocked', 'h', '3'].includes(s)) return '保留';
+    if (['対象外', 'n/a', 'na', '除外', '不要', '-', 'ー', '―', '—', '‐', 'skip', 'skipped', '対象外。', '5'].includes(s)) return '対象外';
+    if (['未実施', '未', 'not run', 'todo', '未着手', '4'].includes(s)) return '未実施';
     if (s.startsWith('ok')) return 'OK';
     if (s.startsWith('ng')) return 'NG';
+    if (s.startsWith('対象外')) return '対象外';
     return '未実施';
   };
 
@@ -214,7 +221,7 @@ window.TR = window.TR || {};
   TR.newItem = function (no) {
     return {
       id: U.uid(), no: no || '', major: '', minor: '', precondition: '', steps: '', expected: '',
-      actual: '', result: '未実施', assignee: '', date: '', evidence: [], note: '',
+      actual: '', result: '未実施', naReason: '', naNote: '', naRef: '', assignee: '', date: '', evidence: [], note: '',
       updatedAt: new Date().toISOString(),
     };
   };
@@ -226,6 +233,7 @@ window.TR = window.TR || {};
       name: name || '新しいプロジェクト',
       meta: { system: '', version: '', period: '', author: '', org: '', summary: '' },
       items: [],
+      snippets: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -247,24 +255,44 @@ window.TR = window.TR || {};
     return 'TC-' + String(items.length + 1).padStart(3, '0');
   };
 
-  /** 集計 */
+  /** 対象外の理由（表示用） */
+  TR.naText = function (it) {
+    if (!it || it.result !== '対象外') return '';
+    let s = [it.naReason, it.naNote].filter(Boolean).join('：');
+    if (it.naRef) s += `（${it.naRef} で確認）`;
+    return s;
+  };
+
+  /** 警告の種類（なければ空文字） */
+  TR.warnOf = function (it) {
+    if (it.result === 'OK' && !(it.evidence && it.evidence.length)) return 'OKなのにエビデンスなし';
+    if (it.result === '対象外' && !it.naReason && !it.naNote) return '対象外の理由が未入力';
+    return '';
+  };
+
+  /** 集計（対象外は進捗・OK率の分母から除く） */
   TR.summarize = function (items) {
-    const counts = { OK: 0, NG: 0, '保留': 0, '未実施': 0 };
-    let noEvidenceDone = 0, okNoEvidence = 0, noEvidenceAll = 0;
+    const counts = { OK: 0, NG: 0, '保留': 0, '未実施': 0, '対象外': 0 };
+    let noEvidenceDone = 0, okNoEvidence = 0, noEvidenceAll = 0, naNoReason = 0;
     items.forEach((it) => {
       counts[it.result] = (counts[it.result] || 0) + 1;
       const hasEv = it.evidence && it.evidence.length > 0;
+      if (it.result === '対象外') {
+        if (!it.naReason && !it.naNote) naNoReason++;
+        return;
+      }
       if (!hasEv) noEvidenceAll++;
       if (!hasEv && TR.DONE_RESULTS.includes(it.result)) noEvidenceDone++;
       if (!hasEv && it.result === 'OK') okNoEvidence++;
     });
     const total = items.length;
+    const target = total - counts['対象外'];
     const done = counts.OK + counts.NG + counts['保留'];
     return {
-      total, counts, done,
-      progress: total ? done / total : 0,
+      total, target, counts, done,
+      progress: target ? done / target : 0,
       okRate: done ? counts.OK / done : 0,
-      noEvidenceDone, okNoEvidence, noEvidenceAll,
+      noEvidenceDone, okNoEvidence, noEvidenceAll, naNoReason,
     };
   };
 
@@ -279,4 +307,148 @@ window.TR = window.TR || {};
   };
 
   TR.pct = (v) => (Math.round(v * 1000) / 10).toFixed(1) + '%';
+
+  /* ---------- 動画・リンクのエビデンス ---------- */
+
+  U.isVideo = (type, name) => /^video\//.test(type || '') || /\.(mp4|m4v|mov|webm|ogv|3gp)$/i.test(name || '');
+  U.isImage = (type, name) => /^image\//.test(type || '') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name || '');
+
+  U.fmtDuration = function (sec) {
+    if (!sec || !isFinite(sec)) return '';
+    const s = Math.round(sec);
+    return `${Math.floor(s / 60)}:${U.pad(s % 60)}`;
+  };
+
+  U.fmtSize = function (bytes) {
+    if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + 'GB';
+    if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + 'MB';
+    return Math.max(1, Math.round(bytes / 1e3)) + 'KB';
+  };
+
+  function canvasToBlob(c, type = 'image/jpeg', q = 0.85) {
+    return new Promise((resolve) => c.toBlob((b) => resolve(b), type, q));
+  }
+
+  /** 動画から再生時間と4コマの静止画を取り出す（失敗時 null） */
+  U.videoInfo = function (blob) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(blob);
+      const v = document.createElement('video');
+      v.muted = true;
+      v.playsInline = true;
+      v.setAttribute('playsinline', '');
+      v.preload = 'auto';
+      let done = false;
+      const finish = (r) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try { v.removeAttribute('src'); v.load(); } catch (e) { /* noop */ }
+        URL.revokeObjectURL(url);
+        resolve(r);
+      };
+      const timer = setTimeout(() => finish(null), 20000);
+      const seek = (t) => new Promise((res) => {
+        const to = setTimeout(res, 4000);
+        v.addEventListener('seeked', () => { clearTimeout(to); res(); }, { once: true });
+        v.currentTime = t;
+      });
+      const grab = async (max) => {
+        const w = v.videoWidth, h = v.videoHeight;
+        const sc = Math.min(1, max / Math.max(w, h));
+        const c = document.createElement('canvas');
+        c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        return canvasToBlob(c);
+      };
+      v.addEventListener('loadedmetadata', async () => {
+        try {
+          let dur = v.duration;
+          if (!isFinite(dur)) {
+            // MediaRecorder 製の webm は duration が Infinity になるため末尾へシークして確定させる
+            await new Promise((res) => {
+              const to = setTimeout(res, 4000);
+              v.addEventListener('durationchange', function h() {
+                if (isFinite(v.duration)) { v.removeEventListener('durationchange', h); clearTimeout(to); res(); }
+              });
+              v.currentTime = 1e101;
+            });
+            dur = isFinite(v.duration) ? v.duration : 0;
+          }
+          if (!v.videoWidth) return finish(null);
+          const times = dur > 0 ? [0.08, 0.36, 0.64, 0.92].map((p) => Math.min(p * dur, Math.max(0, dur - 0.05))) : [0];
+          const frames = [];
+          for (const t of times) {
+            await seek(t);
+            frames.push(await grab(640));
+          }
+          finish({ duration: dur, width: v.videoWidth, height: v.videoHeight, frames });
+        } catch (e) {
+          finish(null);
+        }
+      });
+      v.addEventListener('error', () => finish(null));
+      v.src = url;
+    });
+  };
+
+  function loadImg(blob) {
+    return new Promise((resolve) => {
+      if (!blob) return resolve(null);
+      const url = URL.createObjectURL(blob);
+      const im = new Image();
+      im.onload = () => { URL.revokeObjectURL(url); resolve(im); };
+      im.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      im.src = url;
+    });
+  }
+
+  /** 動画のサムネイル（▶ と再生時間を焼き込み） */
+  U.makeVideoThumb = async function (frameBlob, duration) {
+    const im = await loadImg(frameBlob);
+    const W = 360, H = im ? Math.round(360 * im.height / im.width) || 240 : 240;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = Math.min(Math.max(H, 120), 480);
+    const g = c.getContext('2d');
+    g.fillStyle = '#1f2937'; g.fillRect(0, 0, c.width, c.height);
+    if (im) g.drawImage(im, 0, 0, c.width, c.height);
+    else { g.fillStyle = '#9ca3af'; g.font = '16px sans-serif'; g.fillText('動画（プレビュー不可）', 16, 28); }
+    g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 0, c.width, c.height);
+    const cx = c.width / 2, cy = c.height / 2;
+    g.fillStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.arc(cx, cy, 34, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(cx - 11, cy - 18); g.lineTo(cx + 19, cy); g.lineTo(cx - 11, cy + 18); g.closePath(); g.fill();
+    const label = '▶ 動画' + (duration ? ' ' + U.fmtDuration(duration) : '');
+    g.font = 'bold 18px sans-serif';
+    const tw = g.measureText(label).width;
+    g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(c.width - tw - 18, c.height - 34, tw + 12, 26);
+    g.fillStyle = '#fff'; g.fillText(label, c.width - tw - 12, c.height - 15);
+    return canvasToBlob(c);
+  };
+
+  /** リンクのサムネイル */
+  U.makeLinkThumb = function (title, url) {
+    const c = document.createElement('canvas');
+    c.width = 360; c.height = 240;
+    const g = c.getContext('2d');
+    g.fillStyle = '#eef2ff'; g.fillRect(0, 0, 360, 240);
+    g.strokeStyle = '#93c5fd'; g.lineWidth = 4; g.strokeRect(2, 2, 356, 236);
+    g.font = '54px sans-serif'; g.fillText('🔗', 24, 82);
+    g.fillStyle = '#1e3a8a'; g.font = 'bold 22px sans-serif';
+    const wrap = (text, y, max, lines) => {
+      let line = '', n = 0;
+      for (const ch of String(text)) {
+        if (g.measureText(line + ch).width > max) {
+          g.fillText(line, 24, y + n * 28); line = ch; n++;
+          if (n >= lines) return;
+        } else line += ch;
+      }
+      if (line) g.fillText(line, 24, y + n * 28);
+    };
+    wrap(title || 'リンク', 130, 312, 2);
+    g.fillStyle = '#4b5563'; g.font = '15px sans-serif';
+    let host = url;
+    try { host = new URL(url).host || url; } catch (e) { /* noop */ }
+    g.fillText(String(host).slice(0, 40), 24, 214);
+    return canvasToBlob(c);
+  };
 })(window.TR);

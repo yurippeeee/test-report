@@ -92,11 +92,34 @@
   /* ---------- ライトボックス ---------- */
   const lb = { list: [], idx: 0 };
 
+  function lbStopVideo() {
+    const vid = U.$('#lbVideo');
+    try { vid.pause(); } catch (e) { /* noop */ }
+    vid.removeAttribute('src');
+    try { vid.load(); } catch (e) { /* noop */ }
+  }
+
   async function lbShow() {
     const it = lb.list[lb.idx];
-    const img = U.$('#lbImg');
+    const img = U.$('#lbImg'), vid = U.$('#lbVideo'), link = U.$('#lbLink');
+    lbStopVideo();
     img.removeAttribute('src');
-    img.src = it.src || (await TR.imgCache.full(it.id));
+    img.classList.remove('zoom');
+    img.hidden = vid.hidden = link.hidden = true;
+    const m = it.id ? await TR.imgCache.info(it.id) : { kind: it.kind || 'image', name: it.caption, url: it.url };
+    if (m.kind === 'video') {
+      vid.hidden = false;
+      vid.src = it.src || (await TR.imgCache.full(it.id));
+      vid.play().catch(() => {});
+    } else if (m.kind === 'link') {
+      link.hidden = false;
+      link.innerHTML = `<div class="lb-link-ic">🔗</div><div class="lb-link-title">${U.esc(m.name || '')}</div>
+        <div class="lb-link-url">${U.esc(m.url || '')}</div>
+        <a class="btn btn-primary" href="${U.esc(m.url || '#')}" target="_blank" rel="noopener">リンク先を開く</a>`;
+    } else {
+      img.hidden = false;
+      img.src = it.src || (await TR.imgCache.full(it.id));
+    }
     U.$('#lbCaption').textContent = `${it.caption || ''}  (${lb.idx + 1} / ${lb.list.length})`;
     const multi = lb.list.length > 1;
     U.$('.lb-prev').hidden = !multi;
@@ -116,21 +139,22 @@
     lb.idx = (lb.idx + d + lb.list.length) % lb.list.length;
     lbShow();
   }
-  function lbClose() { U.$('#lightbox').hidden = true; }
+  function lbClose() { lbStopVideo(); U.$('#lightbox').hidden = true; }
 
   document.addEventListener('DOMContentLoaded', () => {
     const box = U.$('#lightbox');
     box.addEventListener('click', (e) => {
       const a = e.target.closest('[data-lb]');
       if (a) { e.stopPropagation(); if (a.dataset.lb === 'close') lbClose(); else lbMove(a.dataset.lb === 'next' ? 1 : -1); return; }
-      if (e.target.id !== 'lbImg') lbClose();
+      if (e.target.closest('#lbImg, #lbVideo, #lbLink')) return;
+      lbClose();
     });
     U.$('#lbImg').addEventListener('click', () => U.$('#lbImg').classList.toggle('zoom'));
     document.addEventListener('keydown', (e) => {
       if (box.hidden) return;
       if (e.key === 'Escape') { e.stopPropagation(); lbClose(); }
-      else if (e.key === 'ArrowRight') lbMove(1);
-      else if (e.key === 'ArrowLeft') lbMove(-1);
+      else if (e.key === 'ArrowRight' && document.activeElement !== U.$('#lbVideo')) lbMove(1);
+      else if (e.key === 'ArrowLeft' && document.activeElement !== U.$('#lbVideo')) lbMove(-1);
     }, true);
     // スワイプ
     let sx = null;
@@ -147,6 +171,34 @@
   ui.badge = function (result, extra = '') {
     const r = TR.RESULTS.includes(result) ? result : '未実施';
     return `<span class="badge b-${TR.RESULT_CLASS[r]} ${extra}">${U.esc(r)}</span>`;
+  };
+
+  /** 対象外の理由を入力（キャンセル時 null） */
+  ui.askNaReason = function (cur = {}, count = 1) {
+    let out = null;
+    return ui.modal({
+      title: count > 1 ? `対象外の理由（${count} 件に設定）` : '対象外の理由',
+      body: `
+        <p class="muted small">実施しない理由を選んでください（報告書に記載されます）。</p>
+        <div class="na-reasons">${TR.NA_REASONS.map((r, i) => `<label class="chk"><input type="radio" name="naReason" value="${U.esc(r)}" ${cur.naReason === r || (!cur.naReason && i === 0) ? 'checked' : ''}> ${U.esc(r)}</label>`).join('')}</div>
+        <label class="field"><span>補足（任意）</span><input name="naNote" value="${U.esc(cur.naNote || '')}" placeholder="例：IE11 はサポート終了のため"></label>
+        <label class="field na-ref"><span>確認済みの項目 ID</span><input name="naRef" value="${U.esc(cur.naRef || '')}" placeholder="例：TC-012"></label>`,
+      buttons: [{ label: 'キャンセル', value: null }, { label: '設定', value: 'ok', cls: 'btn-primary' }],
+      onOpen(el) {
+        const sync = () => { U.$('.na-ref', el).hidden = U.$('input[name=naReason]:checked', el).value !== '他項目で確認済み'; };
+        el.addEventListener('change', sync);
+        sync();
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.isComposing && e.target.tagName === 'INPUT') { e.preventDefault(); U.$('.modal-foot .btn-primary', el).click(); }
+        });
+      },
+      onButton(v, el) {
+        if (v !== 'ok') return true;
+        const r = U.$('input[name=naReason]:checked', el).value;
+        out = { naReason: r, naNote: U.$('[name=naNote]', el).value.trim(), naRef: r === '他項目で確認済み' ? U.$('[name=naRef]', el).value.trim() : '' };
+        return true;
+      },
+    }).then((v) => (v === 'ok' ? out : null));
   };
 
   /** ファイル選択ダイアログ */

@@ -30,6 +30,46 @@
     });
   }
 
+  /** LED 点滅のサンプル動画（MediaRecorder 非対応なら null） */
+  function ledVideo() {
+    return new Promise((resolve) => {
+      if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return resolve(null);
+      const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      const type = types.find((t) => { try { return MediaRecorder.isTypeSupported(t); } catch (e) { return false; } });
+      if (!type) return resolve(null);
+      const c = document.createElement('canvas');
+      c.width = 480; c.height = 320;
+      const g = c.getContext('2d');
+      const draw = (t) => {
+        const on = Math.floor(t / 250) % 2 === 0;
+        g.fillStyle = '#111827'; g.fillRect(0, 0, 480, 320);
+        g.fillStyle = '#374151'; g.fillRect(120, 70, 240, 180);
+        g.fillStyle = '#9ca3af'; g.font = '16px sans-serif'; g.fillText('通知ユニット', 190, 110);
+        g.fillStyle = on ? '#22c55e' : '#14532d';
+        g.beginPath(); g.arc(240, 175, 26, 0, Math.PI * 2); g.fill();
+        if (on) { g.fillStyle = 'rgba(34,197,94,.25)'; g.beginPath(); g.arc(240, 175, 48, 0, Math.PI * 2); g.fill(); }
+        g.fillStyle = '#e5e7eb'; g.font = '14px sans-serif'; g.fillText('サンプル動画：LED 2Hz 点滅  ' + (t / 1000).toFixed(1) + 's', 16, 300);
+      };
+      let rec;
+      try {
+        const stream = c.captureStream(24);
+        rec = new MediaRecorder(stream, { mimeType: type });
+      } catch (e) { return resolve(null); }
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: type.split(';')[0] }) : null);
+      const t0 = performance.now();
+      draw(0);
+      rec.start(250);
+      const iv = setInterval(() => {
+        const t = performance.now() - t0;
+        draw(t);
+        if (t > 3000) { clearInterval(iv); rec.stop(); }
+      }, 40);
+      setTimeout(() => { if (rec.state !== 'inactive') { clearInterval(iv); rec.stop(); } }, 6000);
+    });
+  }
+
   TR.createSampleProject = async function () {
     const p = TR.newProject('【サンプル】会員サイト 結合テスト');
     p.meta = {
@@ -49,6 +89,8 @@
       ['TC-006', '検索', 'キーワード検索', '商品データが登録されていること', '1. 検索ボックスに「りんご」と入力\n2. 検索ボタンを押下', '「りんご」を含む商品が一覧表示されること', '3件表示された', 'OK', '高橋', '2026-10-03', '', ['検索結果', ['「りんご」の検索結果 3件', '・青森りんご  ・りんごジュース', '・りんごジャム'], '#16a34a']],
       ['TC-007', '検索', '該当なし', '', '1. 存在しないキーワードで検索', '「該当する商品はありません」と表示されること', '', '未実施', '高橋', '', '', null],
       ['TC-008', '帳票出力', 'CSV ダウンロード', '管理者でログインしていること', '1. 会員一覧画面を開く\n2. 「CSV出力」を押下', 'UTF-8(BOM付き) の CSV がダウンロードされること', '', '未実施', '', '', '', null],
+      ['TC-009', '端末連携', '新着通知の LED 点滅', '通知ユニットが接続されていること', '1. 管理画面からテスト通知を送信\n2. 通知ユニットの LED を確認', 'LED が緑色で 2Hz 点滅すること', '緑色で約 2Hz の点滅を確認', 'OK', '鈴木', '2026-10-04', '', null],
+      ['TC-010', '表示確認', 'Internet Explorer 11 での表示', '', '1. IE11 でトップページを開く', 'レイアウトが崩れないこと', '', '対象外', '', '', '', null],
     ];
     for (const r of rows) {
       const it = TR.newItem(r[0]);
@@ -58,13 +100,21 @@
       });
       if (r[11]) {
         const blob = await mockScreenshot(r[11][0], r[11][1], r[11][2]);
-        it.evidence.push(await TR.addImageBlob(p.id, blob, `${r[0]}_画面.png`));
+        it.evidence.push(await TR.addEvidenceFile(p.id, blob, `${r[0]}_画面.png`));
       }
       p.items.push(it);
     }
+    p.items[9].naReason = '今回のリリース対象外';
+    p.items[9].naNote = 'IE11 はサポート終了のため';
+    p.snippets = [
+      { id: TR.util.uid(), title: 'ログイン済み', text: '一般会員アカウントでログインしていること' },
+      { id: TR.util.uid(), title: 'ログイン手順', text: '1. ログイン画面を開く\n2. メールアドレスとパスワードを入力\n3. 「ログイン」を押下' },
+    ];
+    const vid = await ledVideo();
+    if (vid) p.items[8].evidence.push(await TR.addEvidenceFile(p.id, vid, `TC-009_LED点滅.${TR.util.extFromType(vid.type)}`));
     // 2枚目のエビデンス例
     const extra = await mockScreenshot('受信メール', ['件名: アカウントロックのお知らせ', '→ 受信されず'], '#6b7280');
-    p.items[2].evidence.push(await TR.addImageBlob(p.id, extra, 'TC-003_メール.png'));
+    p.items[2].evidence.push(await TR.addEvidenceFile(p.id, extra, 'TC-003_メール.png'));
     await TR.db.putProject(p);
     return p;
   };

@@ -4,11 +4,14 @@
   const U = TR.util;
   const ui = TR.ui;
 
+  const EMPTY_FILTERS = () => ({ major: '', result: '', assignee: '', q: '', warn: false });
+
   const S = (TR.state = {
     projects: [],
     project: null,
     view: 'dashboard',
-    filters: { major: '', result: '', assignee: '', q: '', warn: false },
+    filters: EMPTY_FILTERS(),
+    pinned: new Set(), // 追加直後の行は絞り込みに関わらず表示
   });
 
   const LS = {
@@ -17,6 +20,8 @@
   };
 
   const app = (TR.app = {});
+  const mq = window.matchMedia('(max-width: 760px)');
+  app.isMobile = () => mq.matches;
 
   /* ---------- 保存 ---------- */
   const saveNow = async () => {
@@ -39,6 +44,86 @@
   window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDebounced.flush(); });
   window.addEventListener('pagehide', () => saveDebounced.flush());
 
+  /* ---------- 元に戻す / やり直し ---------- */
+  const H = (TR.history = { undo: [], redo: [] });
+  const snap = () => JSON.stringify(S.project.items);
+  H.save = function () {
+    if (!S.project) return;
+    H.undo.push(snap());
+    if (H.undo.length > 100) H.undo.shift();
+    H.redo.length = 0;
+    updateUndoButtons();
+  };
+  H.reset = function () { H.undo.length = 0; H.redo.length = 0; updateUndoButtons(); };
+  function restore(from, to) {
+    if (!from.length) return false;
+    to.push(snap());
+    S.project.items = JSON.parse(from.pop());
+    app.save();
+    if (TR.detail.isOpen() && !S.project.items.some((x) => x.id === TR.detail.currentId())) TR.detail.close();
+    app.render();
+    TR.detail.rerender();
+    updateUndoButtons();
+    return true;
+  }
+  app.undo = () => { if (!restore(H.undo, H.redo)) ui.toast('元に戻せる操作はありません'); };
+  app.redo = () => { if (!restore(H.redo, H.undo)) ui.toast('やり直せる操作はありません'); };
+  function updateUndoButtons() {
+    const u = U.$('[data-tool=undo]'), r = U.$('[data-tool=redo]');
+    if (u) u.disabled = !H.undo.length;
+    if (r) r.disabled = !H.redo.length;
+  }
+
+  /** 履歴を残して変更 */
+  app.mutate = function (fn) {
+    H.save();
+    const r = fn();
+    app.save();
+    return r;
+  };
+
+  /** 値の設定（正規化と付随処理込み） */
+  app.setField = function (it, key, v) {
+    v = v == null ? '' : String(v);
+    if (key === 'evidence') return;
+    if (key === 'result') {
+      const r = TR.RESULTS.includes(v) ? v : U.normalizeResult(v);
+      if (it.result !== r) {
+        it.result = r;
+        if (TR.DONE_RESULTS.includes(r) && !it.date) it.date = U.today();
+      }
+    } else if (key === 'date') {
+      it.date = U.normalizeDate(v);
+    } else {
+      it[key] = v;
+    }
+    it.updatedAt = new Date().toISOString();
+  };
+
+  /** 判定を設定（対象外なら理由を確認） */
+  app.applyResult = async function (items, result) {
+    let na = null;
+    if (result === '対象外') {
+      na = await ui.askNaReason(items.length === 1 ? items[0] : {}, items.length);
+      if (!na) return false;
+    }
+    app.mutate(() => items.forEach((it) => { app.setField(it, 'result', result); if (na) Object.assign(it, na); }));
+    app.afterChange();
+    return true;
+  };
+
+  /** 変更後の軽い再描画（件数・パネル・モバイル一覧） */
+  app.afterChange = U.debounce(() => {
+    if (!S.project) return;
+    if (S.view === 'list') {
+      updateCount();
+      if (app.isMobile()) app.renderCards();
+    }
+    TR.detail.refreshMeta();
+  }, 60);
+
+  app.pin = (it) => S.pinned.add(it.id);
+
   /* ---------- プロジェクト ---------- */
   async function refreshProjects() {
     S.projects = (await TR.db.listProjects()).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
@@ -56,18 +141,25 @@
     if (!p) return;
     p.items = p.items || [];
     p.meta = p.meta || {};
+    p.snippets = p.snippets || [];
+    p.items.forEach((it) => { ['naReason', 'naNote', 'naRef'].forEach((k) => { if (it[k] == null) it[k] = ''; }); });
     S.project = p;
-    S.filters = { major: '', result: '', assignee: '', q: '', warn: false };
+    S.filters = EMPTY_FILTERS();
+    S.pinned.clear();
+    H.reset();
     LS.set('lastProject', id);
     TR.detail.close();
     renderProjectSelect();
     app.render();
+    TR.db.cleanupOrphans(p).catch(() => {});
   };
 
   app.reloadProjects = async function (selectId) {
     await refreshProjects();
     if (!S.projects.length) {
-      const p = await TR.createSampleProject();
+      const b = ui.busy('サンプルプロジェクトを作成中…');
+      let p;
+      try { p = await TR.createSampleProject(); } finally { b.close(); }
       await refreshProjects();
       selectId = p.id;
     }
@@ -108,6 +200,71 @@
     return v === 'ok';
   }
 
+  /* ---------- 共通手順 ---------- */
+  async function manageSnippets() {
+    const p = S.project;
+    p.snippets = p.snippets || [];
+    const list = p.snippets.map((s) => ({ ...s }));
+    const rowHtml = (s, i) => `<div class="snip-row" data-i="${i}">
+        <input class="snip-title" value="${U.esc(s.title)}" placeholder="タイトル">
+        <textarea class="snip-text" rows="3" placeholder="内容（前提条件・手順など）">${U.esc(s.text)}</textarea>
+        <button class="btn btn-sm btn-danger" data-del="${i}">削除</button></div>`;
+    const v = await ui.modal({
+      title: '共通手順の管理',
+      wide: true,
+      body: `<p class="muted small">よく使う前提条件・手順を登録しておくと、表の編集中に <kbd>Ctrl</kbd>+<kbd>Space</kbd>（詳細パネルでは「📋」ボタン）で挿入できます。表のセルを右クリック →「このセルを共通手順に登録」でも追加できます。</p>
+        <div class="snip-list"></div>
+        <button class="btn btn-sm" data-add>＋ 追加</button>`,
+      buttons: [{ label: 'キャンセル', value: null }, { label: '保存', value: 'ok', cls: 'btn-primary' }],
+      onOpen(el) {
+        const box = U.$('.snip-list', el);
+        const sync = () => U.$$('.snip-row', box).forEach((r) => {
+          const s = list[+r.dataset.i];
+          s.title = U.$('.snip-title', r).value;
+          s.text = U.$('.snip-text', r).value;
+        });
+        const draw = () => { box.innerHTML = list.map(rowHtml).join('') || '<p class="muted">まだ登録がありません。</p>'; };
+        draw();
+        el.addEventListener('click', (e) => {
+          if (e.target.closest('[data-add]')) { sync(); list.push({ id: U.uid(), title: '', text: '' }); draw(); U.$$('.snip-title', box).pop().focus(); }
+          const d = e.target.closest('[data-del]');
+          if (d) { sync(); list.splice(+d.dataset.del, 1); draw(); }
+        });
+        el.addEventListener('input', sync);
+      },
+    });
+    if (v !== 'ok') return;
+    p.snippets = list.filter((s) => s.text.trim()).map((s) => ({ id: s.id || U.uid(), title: s.title.trim() || s.text.split('\n')[0].slice(0, 24), text: s.text }));
+    await app.save(true);
+    ui.toast('共通手順を保存しました', 'success');
+  }
+
+  function showShortcuts() {
+    const rows = [
+      ['セルに文字を入力', 'そのまま編集を開始（日本語入力もそのまま）'],
+      ['F2 ／ ダブルクリック', '続きから編集'],
+      ['Enter ／ Tab', '確定して下 ／ 右へ（最終行で Enter → 行を追加）'],
+      ['Alt+Enter', 'セル内で改行'],
+      ['Ctrl+Space（編集中）', '共通手順・他の項目の内容を挿入'],
+      ['Ctrl+Enter（編集中）', '選択範囲すべてに同じ値を入力'],
+      ['Shift+矢印 ／ ドラッグ', '範囲選択（行番号クリックで行選択）'],
+      ['Ctrl+C ／ Ctrl+V', 'コピー ／ 貼り付け（Excel との相互コピペ可。画像を貼るとエビデンスに追加）'],
+      ['Ctrl+D', '上のセルをコピー（範囲選択時は先頭行を下へ）'],
+      ['Delete', '選択セルを消去'],
+      ['Ctrl+Z ／ Ctrl+Y', '元に戻す ／ やり直し'],
+      ['判定セルで 1〜5', 'OK ／ NG ／ 保留 ／ 未実施 ／ 対象外（選択行すべて）'],
+      ['実施日セルで Ctrl+;', '今日の日付'],
+      ['Alt+Shift+↑↓ ／ 行番号をドラッグ', '行を移動'],
+      ['Ctrl+Enter（非編集時）', '詳細パネルを開く'],
+      ['右クリック', '行の挿入・複製・削除・一括入力など'],
+    ];
+    ui.modal({
+      title: 'キーボード操作',
+      wide: true,
+      body: `<table class="kbd-table">${rows.map(([k, d]) => `<tr><th>${U.esc(k)}</th><td>${U.esc(d)}</td></tr>`).join('')}</table>`,
+    });
+  }
+
   /* ---------- フィルタ ---------- */
   app.filtered = function () {
     const f = S.filters;
@@ -116,20 +273,25 @@
       if (f.major && (it.major || '（未設定）') !== f.major) return false;
       if (f.result && it.result !== f.result) return false;
       if (f.assignee && (it.assignee || '（未設定）') !== f.assignee) return false;
-      if (f.warn && !app.isWarn(it)) return false;
+      if (f.warn && !TR.warnOf(it)) return false;
       if (q) {
-        const hay = TR.FIELDS.map((fd) => it[fd.key] || '').join('\n').toLowerCase();
+        const hay = [...TR.FIELDS.map((fd) => it[fd.key] || ''), it.naReason || ''].join('\n').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
   };
+  /** 表示する行（絞り込み＋追加直後の行） */
+  app.viewItems = function () {
+    if (!Object.values(S.filters).some(Boolean)) return S.project.items.slice();
+    const set = new Set(app.filtered());
+    return S.project.items.filter((it) => set.has(it) || S.pinned.has(it.id));
+  };
 
-  app.isWarn = (it) => it.result === 'OK' && !(it.evidence && it.evidence.length);
+  app.isWarn = (it) => !!TR.warnOf(it);
 
   function uniq(key) {
-    const set = new Set(S.project.items.map((it) => it[key] || '（未設定）'));
-    return Array.from(set);
+    return Array.from(new Set(S.project.items.map((it) => it[key] || '（未設定）')));
   }
 
   function renderFilters() {
@@ -142,62 +304,75 @@
     U.$('#fWarn').checked = f.warn;
   }
 
-  /* ---------- 一覧 ---------- */
-  function rowHtml(it) {
+  function updateCount() {
+    const n = app.viewItems().length;
+    U.$('#listCount').textContent = `${n} / ${S.project.items.length} 件`;
+  }
+
+  /* ---------- 一覧（スマホ：カード） ---------- */
+  function cardHtml(it) {
     const ev = it.evidence || [];
-    const warn = app.isWarn(it);
-    const thumbs = ev.slice(0, 3).map((id, i) => `<img class="thumb" data-thumb="${U.esc(id)}" data-ev-idx="${i}" alt="エビデンス${i + 1}" loading="lazy">`).join('');
-    const more = ev.length > 3 ? `<span class="more">+${ev.length - 3}</span>` : '';
+    const warn = TR.warnOf(it);
+    const thumbs = ev.slice(0, 4).map((id, i) => `<img class="thumb" data-thumb="${U.esc(id)}" data-ev-idx="${i}" alt="エビデンス${i + 1}" loading="lazy">`).join('');
+    const more = ev.length > 4 ? `<span class="more">+${ev.length - 4}</span>` : '';
     const sel = TR.detail.currentId() === it.id ? ' selected' : '';
+    const na = it.result === '対象外' ? `<div class="na-text">${U.esc(TR.naText(it))}</div>` : '';
     return `<tr data-id="${U.esc(it.id)}" class="${warn ? 'warn' : ''}${sel}" tabindex="0">
-      <td class="c-no" data-label="ID">${U.esc(it.no)}</td>
-      <td class="c-major" data-label="大項目">${U.esc(it.major)}</td>
-      <td class="c-minor" data-label="小項目">${U.esc(it.minor)}</td>
-      <td class="c-exp" data-label="期待結果"><div class="clamp">${U.esc(it.expected)}</div></td>
-      <td class="c-res" data-label="判定"><button class="badge-btn" data-quick="${U.esc(it.id)}" title="クリックで判定を変更">${ui.badge(it.result)}</button></td>
-      <td class="c-asg" data-label="担当">${U.esc(it.assignee)}</td>
-      <td class="c-date" data-label="実施日">${U.esc(it.date)}</td>
-      <td class="c-ev" data-label="エビデンス"><div class="thumbs">${thumbs}${more}${warn ? '<span class="warn-ic" title="OKなのにエビデンスがありません">⚠ 未添付</span>' : (!ev.length ? '<span class="muted">—</span>' : '')}</div></td>
+      <td class="c-no">${U.esc(it.no)}</td>
+      <td class="c-major">${U.esc(it.major)}</td>
+      <td class="c-minor">${U.esc(it.minor)}</td>
+      <td class="c-exp"><div class="clamp">${U.esc(it.expected)}</div>${na}</td>
+      <td class="c-res"><button class="badge-btn" data-quick="${U.esc(it.id)}" title="判定を変更">${ui.badge(it.result)}</button></td>
+      <td class="c-asg">${U.esc(it.assignee)}</td>
+      <td class="c-date">${U.esc(it.date)}</td>
+      <td class="c-ev"><div class="thumbs">${thumbs}${more}${warn ? `<span class="warn-ic">⚠ ${U.esc(warn)}</span>` : ''}</div></td>
     </tr>`;
   }
 
-  app.renderList = function () {
-    if (!S.project) return;
-    renderFilters();
-    const items = app.filtered();
+  app.renderCards = function () {
+    const items = app.viewItems();
     const body = U.$('#itemsBody');
-    body.innerHTML = items.map(rowHtml).join('');
+    body.innerHTML = items.map(cardHtml).join('');
     TR.imgCache.hydrate(body);
-    U.$('#listCount').textContent = `${items.length} / ${S.project.items.length} 件`;
     const empty = U.$('#listEmpty');
     if (!S.project.items.length) {
       empty.hidden = false;
-      empty.innerHTML = '項目がありません。「＋ 項目を追加」または、メニューの「Excel 仕様書を取り込み」から始めてください。';
+      empty.textContent = '項目がありません。「＋ 追加」から始めてください（表形式の編集は PC で行えます）。';
     } else if (!items.length) {
       empty.hidden = false;
       empty.textContent = '条件に一致する項目がありません。';
     } else empty.hidden = true;
   };
 
-  /** 1行だけ差し替え（詳細パネル編集時） */
-  app.updateRow = function (it) {
-    const tr = U.$(`#itemsBody tr[data-id="${CSS.escape(it.id)}"]`);
-    if (!tr) return;
-    const tmp = document.createElement('tbody');
-    tmp.innerHTML = rowHtml(it);
-    const nr = tmp.firstElementChild;
-    tr.replaceWith(nr);
-    TR.imgCache.hydrate(nr);
+  app.renderList = function () {
+    if (!S.project) return;
+    renderFilters();
+    updateCount();
+    const mobile = app.isMobile();
+    U.$('#gridHost').hidden = mobile;
+    U.$('#gridTools').hidden = mobile;
+    U.$('#cardList').hidden = !mobile;
+    if (mobile) app.renderCards();
+    else TR.grid.render();
+    updateUndoButtons();
   };
 
-  /* ---------- 判定の素早い変更 ---------- */
-  app.setResult = function (it, result) {
-    if (it.result === result) return;
-    it.result = result;
-    if (result !== '未実施' && !it.date) it.date = U.today();
-    it.updatedAt = new Date().toISOString();
-    app.save();
+  /** 行の再描画（詳細パネルからの編集時） */
+  app.updateRow = function (it) {
+    if (S.view !== 'list') return;
+    if (app.isMobile()) {
+      const tr = U.$(`#itemsBody tr[data-id="${CSS.escape(it.id)}"]`);
+      if (!tr) return;
+      const tmp = document.createElement('tbody');
+      tmp.innerHTML = cardHtml(it);
+      const nr = tmp.firstElementChild;
+      tr.replaceWith(nr);
+      TR.imgCache.hydrate(nr);
+    } else TR.grid.refreshRow(it);
   };
+
+  /* ---------- 判定の素早い変更（スマホ一覧） ---------- */
+  app.setResult = (it, result) => app.applyResult([it], result);
 
   let quickPop = null;
   function closeQuick() { if (quickPop) { quickPop.remove(); quickPop = null; } }
@@ -211,14 +386,14 @@
     const pw = pop.offsetWidth;
     pop.style.left = Math.max(8, Math.min(window.innerWidth - pw - 8, rc.left + rc.width / 2 - pw / 2)) + 'px';
     pop.style.top = (rc.bottom + window.scrollY + 4) + 'px';
-    pop.addEventListener('click', (e) => {
+    pop.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-r]');
       if (!b) return;
-      app.setResult(it, b.dataset.r);
       closeQuick();
-      app.updateRow(it);
-      TR.detail.refreshIf(it.id);
-      ui.toast(`${it.no || '項目'} を「${it.result}」にしました`);
+      if (await app.setResult(it, b.dataset.r)) {
+        app.updateRow(it);
+        ui.toast(`${it.no || '項目'} を「${it.result}」にしました`);
+      }
     });
     quickPop = pop;
   }
@@ -260,8 +435,11 @@
     const s = TR.summarize(p.items);
     const m = p.meta || {};
     const metaLine = [m.system, m.version, m.period].filter(Boolean).map(U.esc).join(' ／ ');
-    const warnItems = p.items.filter(app.isWarn);
+    const okNoEv = p.items.filter((it) => it.result === 'OK' && !(it.evidence || []).length);
+    const naNoReason = p.items.filter((it) => it.result === '対象外' && !TR.naText(it));
     const ngItems = p.items.filter((it) => it.result === 'NG');
+    const naItems = p.items.filter((it) => it.result === '対象外');
+    const naBreak = Array.from(TR.groupBy(naItems.map((it) => ({ r: it.naReason || '（理由未入力）' })), 'r').entries());
     const itemLink = (it) => `<li><button class="link" data-open="${U.esc(it.id)}">${U.esc(it.no)}</button> ${U.esc(it.major)} › ${U.esc(it.minor)}</li>`;
 
     U.$('#view-dashboard').innerHTML = `
@@ -281,25 +459,29 @@
       <div class="card">
         <div class="progress-head">
           <h3>進捗</h3>
-          <div class="progress-nums"><strong>${TR.pct(s.progress)}</strong> <span class="muted">（実施済 ${s.done} / ${s.total} 件）</span>　OK率 <strong>${TR.pct(s.okRate)}</strong></div>
+          <div class="progress-nums"><strong>${TR.pct(s.progress)}</strong> <span class="muted">（実施済 ${s.done} / 対象 ${s.target} 件${s.counts['対象外'] ? `・対象外 ${s.counts['対象外']} 件を除く` : ''}）</span>　OK率 <strong>${TR.pct(s.okRate)}</strong></div>
         </div>
         ${stackBar(s.counts, s.total)}
         <div class="legend">${TR.RESULTS.map((r) => `<span><i class="dot seg-${TR.RESULT_CLASS[r]}"></i>${r} ${s.counts[r] || 0}</span>`).join('')}</div>
       </div>
 
       <div class="grid2">
-        <div class="card ${s.noEvidenceDone ? 'card-warn' : ''}">
+        <div class="card ${okNoEv.length || naNoReason.length ? 'card-warn' : ''}">
           <h3>エビデンス未添付</h3>
           <div class="big-num">${s.noEvidenceDone}<small> 件</small></div>
-          <p class="muted small">実施済（OK / NG / 保留）でエビデンスが1枚もない項目。未実施を含めると ${s.noEvidenceAll} 件。</p>
-          ${s.okNoEvidence ? `<div class="alert">⚠ <strong>OKなのにエビデンスなし：${s.okNoEvidence} 件</strong>
-            <ul class="item-links">${warnItems.slice(0, 8).map(itemLink).join('')}</ul>
-            ${warnItems.length > 8 ? `<button class="link" data-goto-warn>…すべて表示</button>` : ''}</div>` : '<p class="ok-msg">✓ OK項目はすべてエビデンス添付済みです</p>'}
+          <p class="muted small">実施済（OK / NG / 保留）でエビデンスが1件もない項目。未実施を含めると ${s.noEvidenceAll} 件。</p>
+          ${okNoEv.length ? `<div class="alert">⚠ <strong>OKなのにエビデンスなし：${okNoEv.length} 件</strong>
+            <ul class="item-links">${okNoEv.slice(0, 8).map(itemLink).join('')}</ul>
+            ${okNoEv.length > 8 ? '<button class="link" data-goto-warn>…すべて表示</button>' : ''}</div>` : '<p class="ok-msg">✓ OK項目はすべてエビデンス添付済みです</p>'}
+          ${naNoReason.length ? `<div class="alert">⚠ <strong>対象外の理由が未入力：${naNoReason.length} 件</strong>
+            <ul class="item-links">${naNoReason.slice(0, 8).map(itemLink).join('')}</ul></div>` : ''}
         </div>
         <div class="card">
           <h3>NG 項目</h3>
           <div class="big-num r-ng">${ngItems.length}<small> 件</small></div>
           ${ngItems.length ? `<ul class="item-links">${ngItems.slice(0, 10).map(itemLink).join('')}</ul>` : '<p class="muted">NG はありません</p>'}
+          ${naItems.length ? `<h3 class="mt">対象外 ${naItems.length} 件の理由</h3>
+            <ul class="na-break">${naBreak.map(([k, list]) => `<li><span>${U.esc(k)}</span><b>${list.length}</b></li>`).join('')}</ul>` : ''}
         </div>
       </div>
 
@@ -319,7 +501,9 @@
     });
     U.$('#view-dashboard').hidden = v !== 'dashboard';
     U.$('#view-list').hidden = v !== 'list';
+    document.body.classList.toggle('view-list', v === 'list');
     app.render();
+    if (v === 'list' && !app.isMobile()) TR.grid.focus();
   };
 
   app.render = function () {
@@ -329,33 +513,30 @@
   };
 
   app.gotoList = function (filters) {
-    S.filters = Object.assign({ major: '', result: '', assignee: '', q: '', warn: false }, filters);
+    S.filters = Object.assign(EMPTY_FILTERS(), filters);
+    S.pinned.clear();
     app.setView('list');
   };
 
-  /* ---------- 項目追加・削除 ---------- */
+  /* ---------- 項目追加（スマホ／ダッシュボード） ---------- */
   app.addItem = function () {
+    if (!app.isMobile() && S.view === 'list') { TR.grid.insertRows('below', 1); return; }
     const items = S.project.items;
     const it = TR.newItem(TR.nextNo(items));
-    // 絞り込み中の大項目・担当を引き継ぐ
-    const cur = TR.detail.currentItem();
-    it.major = S.filters.major && S.filters.major !== '（未設定）' ? S.filters.major : (cur ? cur.major : (items.length ? items[items.length - 1].major : ''));
+    it.major = S.filters.major && S.filters.major !== '（未設定）' ? S.filters.major : (items.length ? items[items.length - 1].major : '');
     if (S.filters.assignee && S.filters.assignee !== '（未設定）') it.assignee = S.filters.assignee;
-    const idx = cur ? items.indexOf(cur) + 1 : items.length;
-    items.splice(idx, 0, it);
-    app.save();
+    app.mutate(() => items.push(it));
+    app.pin(it);
     if (S.view !== 'list') app.setView('list'); else app.renderList();
     TR.detail.open(it.id, true);
   };
 
   app.deleteItem = async function (it) {
-    if (!(await ui.confirm(`項目「${it.no} ${it.minor || ''}」を削除しますか？\nエビデンス画像も削除されます。`, '削除', true))) return false;
+    if (!(await ui.confirm(`項目「${it.no} ${it.minor || ''}」を削除しますか？`, '削除', true))) return false;
     const items = S.project.items;
-    items.splice(items.indexOf(it), 1);
-    if (it.evidence && it.evidence.length) await TR.db.deleteImages(it.evidence);
-    await app.save(true);
+    app.mutate(() => items.splice(items.indexOf(it), 1));
     app.render();
-    ui.toast('削除しました');
+    ui.toast('削除しました（Ctrl+Z で元に戻せます）');
     return true;
   };
 
@@ -380,7 +561,7 @@
     },
     async 'project-delete'() {
       const p = S.project;
-      if (!(await ui.confirm(`プロジェクト「${p.name}」を削除しますか？\n項目とエビデンス画像はすべて削除され、元に戻せません。\n（必要なら先に「プロジェクトを保存（.zip）」でバックアップしてください）`, '削除する', true))) return;
+      if (!(await ui.confirm(`プロジェクト「${p.name}」を削除しますか？\n項目とエビデンスはすべて削除され、元に戻せません。\n（必要なら先に「プロジェクトを保存（.zip）」でバックアップしてください）`, '削除する', true))) return;
       S.project = null;
       await TR.db.deleteProject(p.id);
       await app.reloadProjects();
@@ -394,6 +575,9 @@
       } finally { b.close(); }
       ui.toast('サンプルプロジェクトを作成しました');
     },
+    'snippets': manageSnippets,
+    async 'renumber'() { if (S.view !== 'list') app.setView('list'); await TR.grid.renumber(); app.render(); },
+    'shortcuts': showShortcuts,
     'file-save': () => TR.exporter.saveProjectZip(S.project),
     async 'file-open'() {
       const [f] = await ui.pickFile('.zip,application/zip');
@@ -401,8 +585,7 @@
     },
     'import-excel': () => TR.importer.start(),
     'out-pdf': () => TR.report.start(),
-    'out-html': () => TR.viewer.exportHtml(S.project),
-    'out-excel': () => TR.exporter.exportExcelZip(S.project),
+    'out-html': () => TR.viewer.start(S.project),
   };
 
   app.runAction = async function (name) {
@@ -427,6 +610,8 @@
 
   /* ---------- イベント ---------- */
   function bind() {
+    TR.grid.mount(U.$('#gridHost'));
+
     U.$('#menuBtn').addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(); });
     U.$('#menu').addEventListener('click', (e) => {
       const b = e.target.closest('[data-action]');
@@ -446,14 +631,33 @@
       S.filters.assignee = U.$('#fAssignee').value;
       S.filters.q = U.$('#fQuery').value;
       S.filters.warn = U.$('#fWarn').checked;
+      S.pinned.clear();
       app.renderList();
     };
     ['#fMajor', '#fResult', '#fAssignee', '#fWarn'].forEach((s) => U.$(s).addEventListener('change', onFilter));
     U.$('#fQuery').addEventListener('input', U.debounce(onFilter, 200));
-    U.$('#fClear').addEventListener('click', () => { S.filters = { major: '', result: '', assignee: '', q: '', warn: false }; app.renderList(); });
+    U.$('#fClear').addEventListener('click', () => { S.filters = EMPTY_FILTERS(); S.pinned.clear(); app.renderList(); });
     U.$('#addItemBtn').addEventListener('click', app.addItem);
 
-    // 一覧のクリック
+    // 表のツールバー
+    U.$('#gridTools').addEventListener('mousedown', (e) => { if (e.target.closest('button')) e.preventDefault(); });
+    U.$('#gridTools').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.preset) return TR.grid.setPreset(b.dataset.preset);
+      const t = b.dataset.tool;
+      const G = TR.grid;
+      if (t === 'add') G.insertRows('below');
+      else if (t === 'dup') G.duplicateRows();
+      else if (t === 'del') G.deleteRows();
+      else if (t === 'bulk') G.bulkEdit();
+      else if (t === 'undo') { app.undo(); G.focus(); }
+      else if (t === 'redo') { app.redo(); G.focus(); }
+      else if (t === 'detail') { const it = G.activeItem(); if (it) TR.detail.open(it.id); }
+      else if (t === 'help') showShortcuts();
+    });
+
+    // スマホ一覧のクリック
     const body = U.$('#itemsBody');
     body.addEventListener('click', (e) => {
       const q = e.target.closest('[data-quick]');
@@ -473,19 +677,29 @@
       }
       TR.detail.open(tr.dataset.id);
     });
-    body.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.target.matches('tr[data-id]')) TR.detail.open(e.target.dataset.id);
-    });
 
     // ダッシュボードのクリック
     U.$('#view-dashboard').addEventListener('click', (e) => {
       const t = e.target.closest('button');
       if (!t) return;
-      if (t.dataset.open) { app.gotoList({}); TR.detail.open(t.dataset.open); }
+      if (t.dataset.open) { app.gotoList({}); TR.detail.open(t.dataset.open); TR.grid.selectItem(t.dataset.open); }
       else if ('gotoResult' in t.dataset) app.gotoList({ result: t.dataset.gotoResult });
       else if ('gotoMajor' in t.dataset) app.gotoList({ major: t.dataset.gotoMajor });
       else if ('gotoAssignee' in t.dataset) app.gotoList({ assignee: t.dataset.gotoAssignee });
       else if ('gotoWarn' in t.dataset) app.gotoList({ warn: true });
+    });
+
+    // 画面幅が PC / スマホで切り替わったら描画し直す
+    mq.addEventListener ? mq.addEventListener('change', () => app.render()) : mq.addListener(() => app.render());
+
+    // 表以外にフォーカスがあるときの Ctrl+Z
+    document.addEventListener('keydown', (e) => {
+      if (!(e.ctrlKey || e.metaKey) || TR.grid.isActive()) return;
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName)) return;
+      if (U.$('.modal-backdrop') || S.view !== 'list') return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); app.undo(); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); app.redo(); }
     });
   }
 
