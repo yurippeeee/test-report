@@ -110,7 +110,7 @@
           <div class="ev-grid" id="evGrid">${evidenceHtml(it)}</div>
         </section>
 
-        <form class="form-grid detail-form" autocomplete="off" onsubmit="return false">
+        <form class="form-grid detail-form" autocomplete="off">
           ${TR.FIELDS.map((f) => fieldHtml(f, it)).join('')}
         </form>
         ${datalists()}
@@ -233,6 +233,7 @@
         if (val !== 'ok') return true;
         const url = U.$('[name=url]', el).value.trim();
         if (!url) { ui.toast('URL を入力してください', 'error'); return false; }
+        if (!U.safeUrl(url)) { ui.toast('http:// または https:// で始まる URL を入力してください', 'error'); return false; }
         out = { url, title: U.$('[name=title]', el).value.trim() };
         return true;
       },
@@ -351,6 +352,7 @@
     const el = panel();
 
     U.$('#detailBackdrop').addEventListener('click', D.close);
+    el.addEventListener('submit', (e) => e.preventDefault());
 
     // 入力の開始ごとに「元に戻す」用の履歴を1つ残す
     el.addEventListener('focusin', (e) => {

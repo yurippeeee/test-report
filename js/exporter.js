@@ -10,9 +10,9 @@
 
   function cleanItem(it) {
     const o = {};
-    ITEM_KEYS.forEach((k) => { o[k] = it[k] == null ? '' : it[k]; });
-    o.evidence = (it.evidence || []).slice();
-    o.aiFields = (it.aiFields || []).slice();
+    ITEM_KEYS.forEach((k) => { o[k] = it[k] == null ? '' : String(it[k]); });
+    o.evidence = Array.isArray(it.evidence) ? it.evidence.map(String) : [];
+    o.aiFields = Array.isArray(it.aiFields) ? it.aiFields.filter((k) => typeof k === 'string') : [];
     return o;
   }
 
@@ -111,16 +111,19 @@
       for (const im of json.images || []) {
         n++;
         b2.update(`エビデンスを取り込み中… ${n} / ${json.images.length}`);
-        const kind = im.kind || 'image';
-        const newId = asCopy ? U.uid() : im.id;
+        // ZIP の中身は他人が作ったものかもしれないので、種類・形式・URL を検証してから取り込む
+        const kind = ['image', 'video', 'link'].includes(im.kind) ? im.kind : 'image';
+        const newId = asCopy ? U.uid() : String(im.id);
+        const type = kind === 'link' ? 'text/uri-list' : U.safeMime(im.type, im.file || im.name);
         const rec = {
-          id: newId, projectId: pid, kind, name: im.name, type: im.type, width: im.width, height: im.height,
-          duration: im.duration || 0, url: im.url || '', createdAt: im.createdAt || new Date().toISOString(),
+          id: newId, projectId: pid, kind, name: String(im.name || ''), type, width: +im.width || 0, height: +im.height || 0,
+          duration: +im.duration || 0, url: kind === 'link' ? U.safeUrl(im.url) : '', createdAt: String(im.createdAt || new Date().toISOString()),
         };
+        if (kind === 'link' && !rec.url) rec.name = `${rec.name}（無効な URL：${String(im.url || '').slice(0, 80)}）`;
         const zf = get(im.file);
-        if (zf) rec.blob = new Blob([await zf.async('blob')], { type: im.type || U.typeFromExt(im.file) });
+        if (zf) rec.blob = new Blob([await zf.async('blob')], { type });
         else if (kind !== 'link') continue;
-        const tf = get(im.thumbFile);
+        const tf = kind === 'link' && !rec.url ? null : get(im.thumbFile);
         if (tf) rec.thumb = new Blob([await tf.async('blob')], { type: 'image/jpeg' });
         if (im.frameFiles) {
           rec.frames = [];
@@ -147,9 +150,13 @@
       for (let i = 0; i < recs.length; i += 10) await TR.db.putImages(recs.slice(i, i + 10));
       const p = {
         id: pid,
-        name: asCopy ? `${src.name}（コピー）` : src.name,
-        meta: Object.assign({ system: '', version: '', period: '', author: '', org: '', summary: '' }, src.meta || {}),
-        snippets: (src.snippets || []).map((s) => ({ id: s.id || U.uid(), title: s.title || '', text: s.text || '' })),
+        name: asCopy ? `${src.name}（コピー）` : String(src.name || '無題'),
+        meta: (() => {
+          const m = { system: '', version: '', period: '', author: '', org: '', summary: '' };
+          Object.keys(m).forEach((k) => { if (src.meta && src.meta[k] != null) m[k] = String(src.meta[k]); });
+          return m;
+        })(),
+        snippets: (Array.isArray(src.snippets) ? src.snippets : []).map((s) => ({ id: String(s.id || U.uid()), title: String(s.title || ''), text: String(s.text || '') })),
         createdAt: src.createdAt || new Date().toISOString(),
         updatedAt: src.updatedAt || new Date().toISOString(),
         items: (src.items || []).map((it) => {

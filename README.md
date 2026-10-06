@@ -95,9 +95,19 @@
 
 - **データの保存先**：ブラウザ（およびプロフィール）ごと・URL（オリジン）ごとに別々です。別の PC や別のブラウザとは ZIP で受け渡してください。シークレットウィンドウではウィンドウを閉じると消えます。
 - **iPhone / iPad（Safari）**：しばらく（目安 7 日）サイトを開かないと、ブラウザ内のデータが消去されることがあります。スマホで記録した内容は早めに PC へ ZIP で渡すか、ホーム画面に追加して使ってください。
-- **ライブラリ**：Excel 取り込みに [SheetJS](https://sheetjs.com/)、ZIP 処理に [JSZip](https://stuk.github.io/jszip/) を CDN から必要時に読み込みます。これらの機能だけはインターネット接続が必要です（編集・PDF 出力はオフラインでも動作）。
+- **ライブラリ**：Excel 取り込みに [SheetJS](https://sheetjs.com/)（公式 CDN から必要時に読み込み）、ZIP 処理に [JSZip](https://stuk.github.io/jszip/)（同梱）を使います。Excel 取り込みだけはインターネット接続が必要です。
 - **ローカルで動かす場合**：`index.html` を直接開いても動きますが、ブラウザによっては `file://` で IndexedDB が制限されるため、`python3 -m http.server` などで配信して `http://localhost:8000/` を開くのが確実です。
 - 対応ブラウザ：最新の Chrome / Edge / Safari / Firefox。
+
+## セキュリティ
+
+- **データはブラウザ内だけ**：サーバーはなく、入力内容・エビデンスは外部に送信しません（Content-Security-Policy で外部への通信を禁止しています）。
+- **外部スクリプト**：ZIP 処理の JSZip は `vendor/` に同梱。Excel 取り込みの SheetJS だけを公式 CDN（cdn.sheetjs.com、0.20.3）から読み込みます。外部 CDN も避けたい場合は、`xlsx.full.min.js` を `vendor/` に置き、`js/util.js` の `TR.libs.xlsx` の URL を `vendor/xlsx.full.min.js` に変えてください。
+- **他人から受け取ったファイル**（プロジェクト ZIP・Excel・AI の出力）は、すべて文字として扱い HTML として実行しません。リンクは `http://`・`https://` のみ有効、画像・動画の形式も検証してから取り込みます。
+- **運用上の注意**
+  - 共用 PC ではデータが端末内に残ります。使い終わったらプロジェクトを削除してください（ブラウザ内のデータは暗号化されていません）。
+  - 社外秘の仕様書を AI に貼り付ける際は、契約・社内ルールを確認してください（本アプリから AI へは送信しません）。
+  - 納品物（閲覧用 HTML）にはエビデンスがそのまま含まれます。画面キャプチャに個人情報やパスワードが写っていないか確認してください。
 
 ## ファイル構成
 
@@ -117,4 +127,5 @@ js/exporter.js      プロジェクト ZIP 保存/読込
 js/report.js        製本用 PDF
 js/viewer.js        閲覧用 HTML（納品パッケージ）
 js/sample.js        サンプルデータ
+vendor/jszip.min.js JSZip 3.10（MIT / GPLv3 デュアルライセンス）
 ```

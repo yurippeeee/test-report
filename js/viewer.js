@@ -104,9 +104,9 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:20px}
 
     function evFig(it, k, i) {
       var e = D.ev[k] || {};
-      if (e.kind === 'link') return '<figure><a class="lnk" href="' + esc(e.url) + '" target="_blank" rel="noopener">🔗 ' + esc(e.name) + '</a><figcaption>エビデンス' + (i + 1) + '　' + esc(e.url) + '</figcaption></figure>';
+      if (e.kind === 'link') return '<figure>' + (/^https?:\/\//i.test(e.url || '') ? '<a class="lnk" href="' + esc(e.url) + '" target="_blank" rel="noopener noreferrer">🔗 ' + esc(e.name) + '</a>' : '<span class="lnk">🔗 ' + esc(e.name) + '</span>') + '<figcaption>エビデンス' + (i + 1) + '　' + esc(e.url) + '</figcaption></figure>';
       var cap = e.kind === 'video' ? '▶ 動画 ' + dur(e.duration) + '　' : '';
-      return '<figure><img src="' + (e.thumb || e.src) + '" data-it="' + esc(it.id) + '" data-i="' + i + '" alt=""><figcaption>エビデンス' + (i + 1) + '　' + cap + esc(e.path || e.name || '') + '</figcaption></figure>';
+      return '<figure><img src="' + esc(e.thumb || e.src) + '" data-it="' + esc(it.id) + '" data-i="' + i + '" alt=""><figcaption>エビデンス' + (i + 1) + '　' + cap + esc(e.path || e.name || '') + '</figcaption></figure>';
     }
 
     function detail(it) {
@@ -124,7 +124,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:20px}
       $('#count').textContent = list.length + ' / ' + D.items.length + ' 件';
       $('#rows').innerHTML = list.map(function (it) {
         var ev = it.evidence || [];
-        var th = ev.slice(0, 3).map(function (k, i) { var e = D.ev[k] || {}; return '<img src="' + (e.thumb || e.src || '') + '" data-it="' + esc(it.id) + '" data-i="' + i + '" alt="">'; }).join('');
+        var th = ev.slice(0, 3).map(function (k, i) { var e = D.ev[k] || {}; return '<img src="' + esc(e.thumb || e.src || '') + '" data-it="' + esc(it.id) + '" data-i="' + i + '" alt="">'; }).join('');
         if (ev.length > 3) th += '<small>+' + (ev.length - 3) + '</small>';
         if (!ev.length && it.result === 'OK') th += '<span class="warn">⚠ 未添付</span>';
         var na = it.result === '対象外' ? '<div class="na">' + esc(naText(it)) + '</div>' : '';
@@ -194,6 +194,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:20px}
     const metaLine = [m.system, m.version, m.period, m.org].filter(Boolean).map(U.esc).join(' ／ ');
     return `<!doctype html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: 'self' file:; media-src 'self' file: blob: data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <title>${U.esc(p.name)} - 評価報告書（閲覧用）</title>
 <style>${VIEWER_CSS}</style></head>
 <body>
@@ -223,7 +225,7 @@ ${m.summary ? `<p>${U.escBr(m.summary)}</p>` : ''}
       const rec = await TR.db.getImage(id);
       if (!rec) continue;
       const pth = paths.get(id) || {};
-      const e = { kind: rec.kind || 'image', name: rec.name, duration: rec.duration || 0, url: rec.url || '', path: pth.path || '' };
+      const e = { kind: rec.kind || 'image', name: rec.name, duration: rec.duration || 0, url: U.safeUrl(rec.url), path: pth.path || '' };
       if (rec.thumb) e.thumb = await U.blobToDataURL(rec.thumb);
       if (e.kind !== 'link' && rec.blob) {
         if (mode === 'package') {

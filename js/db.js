@@ -179,7 +179,7 @@
 
   /** ファイル（画像・動画）をエビデンスとして保存し、id を返す */
   TR.addEvidenceFile = async function (projectId, blob, name) {
-    const type = blob.type || U.typeFromExt(name || '');
+    const type = U.safeMime(blob.type, name);
     const rec = {
       id: U.uid(),
       projectId,
@@ -209,6 +209,7 @@
 
   /** リンク（大きな動画の保管先など）をエビデンスとして保存 */
   TR.addEvidenceLink = async function (projectId, url, title) {
+    url = U.safeUrl(url);
     const rec = {
       id: U.uid(),
       projectId,

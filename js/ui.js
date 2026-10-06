@@ -113,9 +113,11 @@
       vid.play().catch(() => {});
     } else if (m.kind === 'link') {
       link.hidden = false;
+      const safe = U.safeUrl(m.url);
       link.innerHTML = `<div class="lb-link-ic">🔗</div><div class="lb-link-title">${U.esc(m.name || '')}</div>
         <div class="lb-link-url">${U.esc(m.url || '')}</div>
-        <a class="btn btn-primary" href="${U.esc(m.url || '#')}" target="_blank" rel="noopener">リンク先を開く</a>`;
+        ${safe ? `<a class="btn btn-primary" href="${U.esc(safe)}" target="_blank" rel="noopener noreferrer">リンク先を開く</a>`
+          : '<div class="warn-ic">http:// または https:// 以外の URL のため、開けないようにしています</div>'}`;
     } else {
       img.hidden = false;
       img.src = it.src || (await TR.imgCache.full(it.id));

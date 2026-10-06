@@ -85,6 +85,20 @@ window.TR = window.TR || {};
     return m ? m[1].toLowerCase() : 'png';
   };
 
+  /** 外部から来たリンク URL は http(s) のみ許可（javascript: 等を防ぐ）。不可なら '' */
+  U.safeUrl = function (url) {
+    const s = String(url || '').trim();
+    return /^https?:\/\/[^\s"'<>]+$/i.test(s) ? s : '';
+  };
+
+  /** 外部から来た MIME タイプは画像・動画の形式だけ許可。不正なら拡張子から推定 */
+  U.safeMime = function (type, name) {
+    const t = String(type || '').toLowerCase().split(';')[0].trim();
+    if (/^(image|video)\/[a-z0-9.+-]+$/.test(t) && t !== 'image/svg+xml') return t;
+    const g = U.typeFromExt(name || '');
+    return /^(image|video)\//.test(g) && g !== 'image/svg+xml' ? g : 'application/octet-stream';
+  };
+
   U.typeFromExt = function (name) {
     const ext = (String(name).match(/\.([a-z0-9]+)$/i) || [])[1] || '';
     return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
@@ -168,14 +182,14 @@ window.TR = window.TR || {};
     return scriptCache[globalName];
   };
 
+  // JSZip はリポジトリ内に同梱（外部 CDN に依存しない）。
+  // SheetJS は公式 CDN の 0.20.3 のみ（npm 公開版 0.18.5 は既知の脆弱性があるため使わない）。
   TR.libs = {
     xlsx: () => U.loadLib('XLSX', [
       'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
-      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
     ]),
     jszip: () => U.loadLib('JSZip', [
-      'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-      'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
+      'vendor/jszip.min.js',
     ]),
   };
 
