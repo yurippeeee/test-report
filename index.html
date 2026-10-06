@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>評価仕様書兼報告書</title>
+  <meta name="description" content="評価仕様書とエビデンス付き報告書をブラウザだけで作成・管理するアプリ">
+  <meta name="theme-color" content="#1e3a8a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%231e3a8a'/%3E%3Cpath d='M18 34l9 9 19-21' stroke='%23fff' stroke-width='7' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/report.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand" title="評価仕様書兼報告書">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="12" fill="currentColor"/><path d="M18 34l9 9 19-21" stroke="#fff" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="brand-text">評価仕様書兼報告書</span>
+      </div>
+      <label class="project-select">
+        <span class="sr-only">プロジェクト</span>
+        <select id="projectSelect" aria-label="プロジェクト"></select>
+      </label>
+      <div class="menu-wrap">
+        <button id="menuBtn" class="btn" aria-haspopup="true" aria-expanded="false">☰ <span class="hide-sm">メニュー</span></button>
+        <div id="menu" class="menu" role="menu" hidden>
+          <div class="menu-group">プロジェクト</div>
+          <button data-action="project-new" role="menuitem">新規プロジェクト</button>
+          <button data-action="project-edit" role="menuitem">プロジェクト情報の編集（表紙）</button>
+          <button data-action="project-delete" role="menuitem" class="danger">このプロジェクトを削除</button>
+          <button data-action="project-sample" role="menuitem">サンプルプロジェクトを作成</button>
+          <div class="menu-group">ファイル（チーム間の受け渡し）</div>
+          <button data-action="file-save" role="menuitem">💾 プロジェクトを保存（.zip）</button>
+          <button data-action="file-open" role="menuitem">📂 プロジェクトを読み込み（.zip）</button>
+          <button data-action="import-excel" role="menuitem">📥 Excel 仕様書を取り込み</button>
+          <div class="menu-group">納品用の出力</div>
+          <button data-action="out-pdf" role="menuitem">🖨 PDF 報告書（印刷）</button>
+          <button data-action="out-html" role="menuitem">🌐 閲覧専用 HTML</button>
+          <button data-action="out-excel" role="menuitem">📊 Excel ＋ エビデンス（.zip）</button>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-view="dashboard">ダッシュボード</button>
+      <button class="tab" role="tab" data-view="list">一覧</button>
+    </nav>
+
+    <main>
+      <section id="view-dashboard" class="view" hidden></section>
+
+      <section id="view-list" class="view" hidden>
+        <div class="toolbar">
+          <div class="filters">
+            <select id="fMajor" aria-label="大項目で絞り込み"></select>
+            <select id="fResult" aria-label="判定で絞り込み"></select>
+            <select id="fAssignee" aria-label="担当で絞り込み"></select>
+            <input id="fQuery" type="search" placeholder="キーワード検索" aria-label="キーワード検索">
+            <label class="chk"><input id="fWarn" type="checkbox"> 要確認のみ</label>
+            <button id="fClear" class="btn btn-ghost btn-sm" type="button">クリア</button>
+          </div>
+          <div class="toolbar-right">
+            <span id="listCount" class="muted"></span>
+            <button id="addItemBtn" class="btn btn-primary" type="button">＋ 項目を追加</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="items">
+            <thead>
+              <tr>
+                <th class="c-no">ID</th>
+                <th class="c-major">大項目</th>
+                <th class="c-minor">小項目</th>
+                <th class="c-exp">期待結果</th>
+                <th class="c-res">判定</th>
+                <th class="c-asg">担当</th>
+                <th class="c-date">実施日</th>
+                <th class="c-ev">エビデンス</th>
+              </tr>
+            </thead>
+            <tbody id="itemsBody"></tbody>
+          </table>
+          <div id="listEmpty" class="empty" hidden></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 詳細パネル -->
+  <div id="detailBackdrop" class="backdrop" hidden></div>
+  <aside id="detail" class="detail" aria-label="項目の詳細" hidden></aside>
+
+  <!-- ライトボックス -->
+  <div id="lightbox" class="lightbox" hidden>
+    <div class="lb-top">
+      <span id="lbCaption"></span>
+      <button class="lb-close" data-lb="close" aria-label="閉じる">✕</button>
+    </div>
+    <button class="lb-nav lb-prev" data-lb="prev" aria-label="前の画像">‹</button>
+    <div class="lb-stage"><img id="lbImg" alt=""></div>
+    <button class="lb-nav lb-next" data-lb="next" aria-label="次の画像">›</button>
+  </div>
+
+  <!-- モーダル -->
+  <div id="modalRoot"></div>
+
+  <!-- 印刷（PDF報告書）プレビュー -->
+  <div id="printRoot" hidden></div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="js/util.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/sample.js"></script>
+  <script src="js/importer.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/report.js"></script>
+  <script src="js/viewer.js"></script>
+  <script src="js/detail.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

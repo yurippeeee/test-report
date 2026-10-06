@@ -1,0 +1,94 @@
+/* ===== PDF 報告書（印刷プレビュー＆印刷用） ===== */
+
+/* 画面上のプレビュー */
+#printRoot { position: fixed; inset: 0; z-index: 90; background: #e5e7eb; overflow: auto; }
+.rp-toolbar {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px; background: #1e3a8a; color: #fff;
+}
+.rp-toolbar .spacer { flex: 1; }
+.rp-toolbar .muted { color: #c7d2fe; }
+.rp-doc { max-width: 210mm; margin: 16px auto 40px; background: #fff; padding: 14mm 14mm; box-shadow: 0 4px 20px rgba(0,0,0,.15); color: #111; font-size: 10pt; line-height: 1.55; }
+body.report-mode #app { display: none; }
+
+/* 表紙 */
+.rp-cover { display: flex; flex-direction: column; min-height: 250mm; }
+.rp-cover-top { text-align: right; font-size: 11pt; color: #444; }
+.rp-cover-main { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+.rp-cover-kind { font-size: 13pt; letter-spacing: .3em; color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 4px; margin-bottom: 14mm; }
+.rp-cover h1 { font-size: 24pt; margin: 0 0 16mm; line-height: 1.35; }
+.rp-cover-meta { border-collapse: collapse; font-size: 11pt; min-width: 110mm; }
+.rp-cover-meta th, .rp-cover-meta td { border-bottom: 1px solid #ccc; padding: 6px 12px; text-align: left; }
+.rp-cover-meta th { width: 32mm; color: #555; font-weight: 600; }
+.rp-stamp { align-self: flex-end; border-collapse: collapse; }
+.rp-stamp th, .rp-stamp td { border: 1px solid #555; width: 24mm; text-align: center; font-size: 9pt; font-weight: 400; }
+.rp-stamp td { height: 22mm; }
+
+/* セクション */
+.rp-section h2 { font-size: 15pt; border-left: 6px solid #1e3a8a; padding-left: 8px; margin: 0 0 10px; }
+.rp-section h3 { font-size: 11.5pt; margin: 16px 0 6px; }
+.rp-break { break-before: page; page-break-before: always; }
+.rp-doc > .rp-break:first-child { break-before: auto; page-break-before: auto; }
+.rp-summary-text { margin: 0 0 10px; }
+.rp-kpis { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 8px 0; }
+.rp-kpis div { border: 1px solid #ccc; border-radius: 6px; padding: 4px 6px; text-align: center; }
+.rp-kpis span { display: block; font-size: 8.5pt; color: #555; }
+.rp-kpis b { font-size: 15pt; }
+.rp-kpis .k-ok b { color: #15803d; } .rp-kpis .k-ng b { color: #b91c1c; } .rp-kpis .k-hold b { color: #b45309; } .rp-kpis .k-todo b { color: #6b7280; }
+.rp-stack { height: 10px; }
+.rp-note { font-size: 9pt; color: #444; }
+.rp-warn { color: #c2410c; font-weight: 700; }
+
+.rp-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.rp-table th, .rp-table td { border: 1px solid #999; padding: 3px 5px; text-align: left; vertical-align: top; word-break: break-word; }
+.rp-table thead th { background: #e8edf7; font-weight: 700; white-space: nowrap; }
+.rp-table thead { display: table-header-group; }
+.rp-table tr { break-inside: avoid; page-break-inside: avoid; }
+.rp-center td, .rp-center th { text-align: center; }
+.rp-center tbody th { text-align: left; }
+.rp-list { font-size: 8.5pt; }
+.rp-list td:nth-child(4) { width: 34%; }
+.rp-table .center { text-align: center; }
+.nowrap { white-space: nowrap; }
+
+/* 詳細 */
+.rp-item { margin-bottom: 8mm; }
+.rp-item-head { display: flex; align-items: center; gap: 8px; background: #eef2ff; border: 1px solid #c7d2fe; border-bottom: 0; padding: 4px 8px; break-after: avoid; page-break-after: avoid; }
+.rp-item-no { font-weight: 700; }
+.rp-item-title { flex: 1; font-weight: 600; }
+.rp-kv th { width: 26mm; background: #f5f5f5; white-space: nowrap; }
+.rp-kv { break-inside: avoid; page-break-inside: avoid; }
+.rp-evs { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; margin-top: 3mm; }
+.rp-ev { margin: 0; border: 1px solid #ccc; padding: 2mm; break-inside: avoid; page-break-inside: avoid; text-align: center; }
+.rp-ev img { max-width: 100%; max-height: 85mm; object-fit: contain; cursor: zoom-in; }
+.rp-ev figcaption { font-size: 8pt; color: #555; text-align: left; word-break: break-all; }
+.rp-noev { font-size: 9pt; color: #666; margin: 2mm 0 0; }
+
+@media (max-width: 760px) {
+  .rp-doc { margin: 0; padding: 12px; box-shadow: none; }
+  .rp-kpis { grid-template-columns: repeat(4, 1fr); }
+  .rp-evs { grid-template-columns: 1fr; }
+  .rp-cover { min-height: auto; }
+}
+
+/* ===== 印刷 ===== */
+@page {
+  size: A4 portrait;
+  margin: 14mm 12mm 16mm;
+  @bottom-center { content: counter(page) " / " counter(pages); font-size: 9pt; color: #555; }
+}
+
+@media print {
+  html, body { background: #fff !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body.report-mode > *:not(#printRoot) { display: none !important; }
+  body:not(.report-mode) #printRoot { display: none !important; }
+  #printRoot { position: static; overflow: visible; background: #fff; display: block !important; }
+  .no-print { display: none !important; }
+  .rp-doc { max-width: none; margin: 0; padding: 0; box-shadow: none; font-size: 10pt; }
+  .rp-cover { min-height: 255mm; break-after: page; page-break-after: always; }
+  .rp-cover + .rp-break { break-before: auto; page-break-before: auto; }
+  .rp-ev img { cursor: default; }
+  .rp-kpis { grid-template-columns: repeat(7, 1fr); }
+  .rp-evs { grid-template-columns: 1fr 1fr; }
+}
