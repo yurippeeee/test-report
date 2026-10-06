@@ -433,3 +433,23 @@ kbd { border: 1px solid var(--line2); border-bottom-width: 2px; border-radius: 4
   .result-seg { grid-template-columns: repeat(3, 1fr); }
   .snip-row { grid-template-columns: 1fr; }
 }
+
+/* ===== 取り込み後の「要確認」・AI 雛形 ===== */
+:root { --ai-bg: #f3e8ff; --ai-line: #c4b5fd; --ai-fg: #6d28d9; }
+table.grid td.g-ai { background: var(--ai-bg); }
+table.grid td.g-ai.sel { background: #e4d4fd; }
+table.grid tr.ai-row .g-rh { box-shadow: inset 3px 0 0 #8b5cf6; color: var(--ai-fg); }
+.alert-ai { background: #faf5ff; border-color: var(--ai-line); color: #5b21b6; }
+.ai-tag { font-size: 10px; background: var(--ai-bg); color: var(--ai-fg); border: 1px solid var(--ai-line); border-radius: 4px; padding: 0 4px; font-weight: 600; vertical-align: 1px; }
+.field.ai input, .field.ai textarea { background: var(--ai-bg); border-color: var(--ai-line); }
+.field.ai > span::after { content: " 要確認"; color: var(--ai-fg); font-weight: 400; }
+.btn-ai { border-color: var(--ai-line); color: var(--ai-fg); background: #faf5ff; }
+.btn-ai:hover { background: var(--ai-bg); }
+.ti-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ti-aspects { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; margin: 8px 0; }
+.ti-count { max-width: 200px; }
+.ti-copy { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 6px; }
+.ti-prompt textarea, #tiPaste { width: 100%; font: 12px/1.5 ui-monospace, Consolas, monospace; padding: 8px; border: 1px solid var(--line2); border-radius: 8px; }
+.ti-prompt summary { cursor: pointer; color: var(--muted); margin-bottom: 6px; }
+#tiPreview { margin-top: 10px; }
+@media (max-width: 760px) { .ti-mode { grid-template-columns: 1fr; } }

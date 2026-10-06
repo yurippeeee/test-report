@@ -242,5 +242,5 @@
     ui.toast(`${st.items.length} 件を取り込みました`, 'success');
   }
 
-  TR.importer = { start, _test: { guessMapping, detectHeaderRow, buildItems } };
+  TR.importer = { start, guessMapping, buildItems, _test: { guessMapping, detectHeaderRow, buildItems } };
 })(window.TR);

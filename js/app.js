@@ -86,6 +86,7 @@
   app.setField = function (it, key, v) {
     v = v == null ? '' : String(v);
     if (key === 'evidence') return;
+    TR.touchField(it, key);
     if (key === 'result') {
       const r = TR.RESULTS.includes(v) ? v : U.normalizeResult(v);
       if (it.result !== r) {
@@ -273,7 +274,7 @@
       if (f.major && (it.major || '（未設定）') !== f.major) return false;
       if (f.result && it.result !== f.result) return false;
       if (f.assignee && (it.assignee || '（未設定）') !== f.assignee) return false;
-      if (f.warn && !TR.warnOf(it)) return false;
+      if (f.warn && !TR.warnOf(it) && !TR.isReview(it)) return false;
       if (q) {
         const hay = [...TR.FIELDS.map((fd) => it[fd.key] || ''), it.naReason || ''].join('\n').toLowerCase();
         if (!hay.includes(q)) return false;
@@ -320,7 +321,7 @@
     return `<tr data-id="${U.esc(it.id)}" class="${warn ? 'warn' : ''}${sel}" tabindex="0">
       <td class="c-no">${U.esc(it.no)}</td>
       <td class="c-major">${U.esc(it.major)}</td>
-      <td class="c-minor">${U.esc(it.minor)}</td>
+      <td class="c-minor">${U.esc(it.minor)}${TR.isReview(it) ? ' <span class="ai-tag">要確認</span>' : ''}</td>
       <td class="c-exp"><div class="clamp">${U.esc(it.expected)}</div>${na}</td>
       <td class="c-res"><button class="badge-btn" data-quick="${U.esc(it.id)}" title="判定を変更">${ui.badge(it.result)}</button></td>
       <td class="c-asg">${U.esc(it.assignee)}</td>
@@ -436,7 +437,9 @@
     const m = p.meta || {};
     const metaLine = [m.system, m.version, m.period].filter(Boolean).map(U.esc).join(' ／ ');
     const okNoEv = p.items.filter((it) => it.result === 'OK' && !(it.evidence || []).length);
+
     const naNoReason = p.items.filter((it) => it.result === '対象外' && !TR.naText(it));
+    const reviewItems = p.items.filter(TR.isReview);
     const ngItems = p.items.filter((it) => it.result === 'NG');
     const naItems = p.items.filter((it) => it.result === '対象外');
     const naBreak = Array.from(TR.groupBy(naItems.map((it) => ({ r: it.naReason || '（理由未入力）' })), 'r').entries());
@@ -466,7 +469,7 @@
       </div>
 
       <div class="grid2">
-        <div class="card ${okNoEv.length || naNoReason.length ? 'card-warn' : ''}">
+        <div class="card ${okNoEv.length || naNoReason.length || reviewItems.length ? 'card-warn' : ''}">
           <h3>エビデンス未添付</h3>
           <div class="big-num">${s.noEvidenceDone}<small> 件</small></div>
           <p class="muted small">実施済（OK / NG / 保留）でエビデンスが1件もない項目。未実施を含めると ${s.noEvidenceAll} 件。</p>
@@ -475,6 +478,9 @@
             ${okNoEv.length > 8 ? '<button class="link" data-goto-warn>…すべて表示</button>' : ''}</div>` : '<p class="ok-msg">✓ OK項目はすべてエビデンス添付済みです</p>'}
           ${naNoReason.length ? `<div class="alert">⚠ <strong>対象外の理由が未入力：${naNoReason.length} 件</strong>
             <ul class="item-links">${naNoReason.slice(0, 8).map(itemLink).join('')}</ul></div>` : ''}
+          ${reviewItems.length ? `<div class="alert alert-ai">🤖 <strong>取り込み後に未確認の項目：${reviewItems.length} 件</strong>
+            <ul class="item-links">${reviewItems.slice(0, 8).map(itemLink).join('')}</ul>
+            ${reviewItems.length > 8 ? '<button class="link" data-goto-warn>…すべて表示</button>' : ''}</div>` : ''}
         </div>
         <div class="card">
           <h3>NG 項目</h3>
@@ -584,6 +590,7 @@
       if (f) await TR.exporter.loadProjectZip(f);
     },
     'import-excel': () => TR.importer.start(),
+    'import-text': () => TR.textImport.start(),
     'out-pdf': () => TR.report.start(),
     'out-html': () => TR.viewer.start(S.project),
   };
@@ -655,6 +662,8 @@
       else if (t === 'redo') { app.redo(); G.focus(); }
       else if (t === 'detail') { const it = G.activeItem(); if (it) TR.detail.open(it.id); }
       else if (t === 'help') showShortcuts();
+      else if (t === 'ai') TR.textImport.start();
+      else if (t === 'reviewed') G.markReviewed();
     });
 
     // スマホ一覧のクリック

@@ -75,11 +75,13 @@
       inner = `<div class="g-v">${U.esc(it[c.key] || '')}</div>`;
     }
     if (c.stick) cls += ' g-stick';
+    if (it.aiFields && it.aiFields.includes(c.key)) cls += ' g-ai';
     return `<td class="${cls}" data-c="${ci}">${inner}</td>`;
   }
 
   function rowHtml(it, r) {
-    return `<tr data-r="${r}" data-id="${U.esc(it.id)}"><th class="g-rh" title="ドラッグで並べ替え／ダブルクリックで詳細">${r + 1}</th>${cols.map((c, ci) => cellHtml(it, c, r, ci)).join('')}</tr>`;
+    const rv = TR.isReview(it);
+    return `<tr data-r="${r}" data-id="${U.esc(it.id)}"${rv ? ' class="ai-row"' : ''}><th class="g-rh" title="${rv ? '取り込んだ内容が未確認（色付きのセル）／' : ''}ドラッグで並べ替え／ダブルクリックで詳細">${r + 1}</th>${cols.map((c, ci) => cellHtml(it, c, r, ci)).join('')}</tr>`;
   }
 
   G.render = function () {
@@ -539,6 +541,17 @@
     G.focus();
   };
 
+  /** 選択行の「要確認」印を外す */
+  G.markReviewed = function () {
+    const sel = selectedItems().filter(TR.isReview);
+    if (!sel.length) { ui.toast('選択行に要確認の印はありません'); G.focus(); return; }
+    app().mutate(() => sel.forEach((it) => { it.aiFields = []; }));
+    sel.forEach((it) => G.refreshRow(it));
+    app().afterChange();
+    ui.toast(`${sel.length} 行を確認済みにしました`);
+    G.focus();
+  };
+
   /* ---------- クリップボード ---------- */
   function cellText(it, c) {
     if (c.type === 'evidence') return (it.evidence || []).length ? `[エビデンス${it.evidence.length}件]` : '';
@@ -547,28 +560,7 @@
   function toTSV(m) {
     return m.map((row) => row.map((v) => (/[\t\n"]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v)).join('\t')).join('\r\n');
   }
-  function parseTSV(text) {
-    text = text.replace(/\r\n?/g, '\n');
-    if (text.endsWith('\n')) text = text.slice(0, -1);
-    const out = [];
-    let row = [], cell = '', q = false;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (q) {
-        if (ch === '"') {
-          if (text[i + 1] === '"') { cell += '"'; i++; } else q = false;
-        } else cell += ch;
-        continue;
-      }
-      if (ch === '"' && cell === '') { q = true; continue; }
-      if (ch === '\t') { row.push(cell); cell = ''; continue; }
-      if (ch === '\n') { row.push(cell); out.push(row); row = []; cell = ''; continue; }
-      cell += ch;
-    }
-    row.push(cell);
-    out.push(row);
-    return out;
-  }
+  const parseTSV = (text) => U.parseDelimited(text, '\t');
   function copySel() {
     const g = rng();
     const m = [];
@@ -701,6 +693,7 @@
       <hr>
       <button data-ctx="bulk">一括入力…</button>
       <button data-ctx="na">対象外にする（理由を入力）</button>
+      <button data-ctx="reviewed">✓ 確認済みにする（要確認の印を外す）</button>
       ${c && c.multi ? '<button data-ctx="snip">このセルを共通手順に登録</button>' : ''}
       <hr>
       <button data-ctx="copy">コピー　<small>Ctrl+C</small></button>`;
@@ -721,6 +714,7 @@
       else if (a === 'down') G.moveRows(1);
       else if (a === 'bulk') G.bulkEdit();
       else if (a === 'na') G.setResult('対象外');
+      else if (a === 'reviewed') G.markReviewed();
       else if (a === 'snip') G.saveSnippetFromCell();
       else if (a === 'copy') {
         try { await navigator.clipboard.writeText(copySel()); ui.toast('コピーしました'); } catch (err) { ui.toast('Ctrl+C でコピーしてください', 'error'); }

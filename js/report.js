@@ -187,6 +187,7 @@
       title: '製本用 PDF の作成',
       body: `
         <p class="muted small">印刷用のレイアウトを表示し、ブラウザの印刷機能で PDF に保存します。動画は数コマの静止画とファイル名で記載され、閲覧用 HTML の evidence フォルダと対応します。</p>
+        ${TR.state.project.items.some(TR.isReview) ? `<div class="alert alert-ai">🤖 取り込み後に未確認の項目が ${TR.state.project.items.filter(TR.isReview).length} 件あります。内容を確認してから出力してください（一覧の「⚠ 要確認のみ」で絞り込めます）。</div>` : ''}
         <div class="chk-list">
           <label class="chk"><input type="checkbox" name="cover" checked> 表紙</label>
           <label class="chk"><input type="checkbox" name="summary" checked> サマリ（NG・保留・対象外の一覧を含む）</label>

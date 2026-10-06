@@ -31,7 +31,8 @@
       const list = (f.key === 'major' || f.key === 'assignee' || f.key === 'minor') ? ` list="dl-${f.key}"` : '';
       input = `<input name="${f.key}" value="${U.esc(v)}"${list} autocomplete="off">`;
     }
-    const cls = f.key === 'no' || f.key === 'assignee' || f.key === 'date' ? 'field half' : 'field';
+    let cls = f.key === 'no' || f.key === 'assignee' || f.key === 'date' ? 'field half' : 'field';
+    if (it.aiFields && it.aiFields.includes(f.key)) cls += ' ai';
     const snip = SNIP_FIELDS.includes(f.key) ? `<button type="button" class="snip-btn" data-snip="${f.key}" title="共通手順・他の項目から挿入">📋</button>` : '';
     return `<label class="${cls}"><span>${f.label}${snip}</span>${input}</label>`;
   }
@@ -87,6 +88,8 @@
       </div>
       <div class="detail-body">
         <div id="evWarn" class="alert" hidden></div>
+        <div id="aiBanner" class="alert alert-ai" hidden>🤖 取り込んだ内容が未確認です（色付きの欄）。確認したら
+          <button type="button" class="btn btn-sm" data-reviewed>✓ 確認済みにする</button></div>
 
         <div class="result-seg" role="radiogroup" aria-label="判定">
           ${TR.RESULTS.map((r, i) => `<button type="button" role="radio" aria-checked="${it.result === r}" class="seg-btn r-${TR.RESULT_CLASS[r]} ${it.result === r ? 'on' : ''}" data-result="${r}" title="${r}（キー ${i + 1}）">${r}</button>`).join('')}
@@ -159,6 +162,7 @@
     const warn = U.$('#evWarn', el);
     warn.hidden = !w;
     warn.textContent = w ? `⚠ ${w}` : '';
+    U.$('#aiBanner', el).hidden = !TR.isReview(it);
     U.$$('[data-result]', el).forEach((b) => {
       const on = b.dataset.result === it.result;
       b.classList.toggle('on', on);
@@ -359,6 +363,12 @@
       if (!it || !t.name || t.name === 'naReason') return;
       if (t.name === 'date') it.date = t.value;
       else it[t.name] = t.value;
+      if (TR.isReview(it) && it.aiFields.includes(t.name)) {
+        TR.touchField(it, t.name);
+        const lab = t.closest('.field');
+        if (lab) lab.classList.remove('ai');
+        refreshMeta(it);
+      }
       if (t.tagName === 'TEXTAREA') autosize(t);
       if (t.name === 'no' || t.name === 'naNote') refreshMeta(it);
       touched(it);
@@ -382,6 +392,12 @@
       const t = e.target.closest('button, img');
       if (!t) return;
       if (t.matches('[data-close]')) return D.close();
+      if (t.matches('[data-reviewed]')) {
+        TR.app.mutate(() => { it.aiFields = []; });
+        touched(it);
+        render();
+        return;
+      }
       if (t.dataset.nav) return nav(+t.dataset.nav);
       if (t.dataset.result) return setResult(it, t.dataset.result);
       if (t.dataset.snip) { e.preventDefault(); return pickSnippet(it, t.dataset.snip); }

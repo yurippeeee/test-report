@@ -12,6 +12,7 @@
     const o = {};
     ITEM_KEYS.forEach((k) => { o[k] = it[k] == null ? '' : it[k]; });
     o.evidence = (it.evidence || []).slice();
+    o.aiFields = (it.aiFields || []).slice();
     return o;
   }
 

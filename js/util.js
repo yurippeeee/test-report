@@ -451,4 +451,40 @@ window.TR = window.TR || {};
     g.fillText(String(host).slice(0, 40), 24, 214);
     return canvasToBlob(c);
   };
+
+  /* ---------- 区切りテキスト ---------- */
+
+  /** タブ/カンマ区切りを 2 次元配列に（"…" で囲まれたセル内の改行・区切り文字に対応） */
+  U.parseDelimited = function (text, delim) {
+    text = String(text).replace(/\r\n?/g, '\n');
+    if (text.endsWith('\n')) text = text.slice(0, -1);
+    const out = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cell += '"'; i++; } else q = false;
+        } else cell += ch;
+        continue;
+      }
+      if (ch === '"' && cell === '') { q = true; continue; }
+      if (ch === delim) { row.push(cell); cell = ''; continue; }
+      if (ch === '\n') { row.push(cell); out.push(row); row = []; cell = ''; continue; }
+      cell += ch;
+    }
+    row.push(cell);
+    out.push(row);
+    return out;
+  };
+
+  /* ---------- 取り込み後の「要確認」印 ---------- */
+
+  /** 取り込み（AI 等）で入った未確認のセルがあるか */
+  TR.isReview = (it) => !!(it && it.aiFields && it.aiFields.length);
+
+  /** 人が編集したセルは印を外す */
+  TR.touchField = function (it, key) {
+    if (it && it.aiFields && it.aiFields.includes(key)) it.aiFields = it.aiFields.filter((k) => k !== key);
+  };
 })(window.TR);

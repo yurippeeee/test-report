@@ -34,6 +34,7 @@
           <div class="menu-group">ファイル（チーム間の受け渡し）</div>
           <button data-action="file-save" role="menuitem">💾 プロジェクトを保存（.zip）</button>
           <button data-action="file-open" role="menuitem">📂 プロジェクトを読み込み（.zip）</button>
+          <button data-action="import-text" role="menuitem">🤖 AI で雛形を作成・補完（テキスト取り込み）</button>
           <button data-action="import-excel" role="menuitem">📥 Excel 仕様書を取り込み</button>
           <div class="menu-group">納品物</div>
           <button data-action="out-pdf" role="menuitem">📕 製本用 PDF（印刷）</button>
@@ -74,6 +75,10 @@
             <button data-preset="create" title="仕様書づくり：手順・期待結果を中心に表示">作成</button>
             <button data-preset="run" title="試験実施：判定・実績・エビデンスを中心に表示">実施</button>
             <button data-preset="all">すべて</button>
+          </div>
+          <div class="tool-group">
+            <button class="btn btn-sm btn-ai" data-tool="ai" title="AI 用の指示文を作り、結果を貼り付けて取り込み">🤖 AI で雛形・補完</button>
+            <button class="btn btn-sm" data-tool="reviewed" title="選択行の「要確認」の印を外す">✓ 確認済み</button>
           </div>
           <div class="tool-group">
             <button class="btn btn-sm btn-primary" data-tool="add" title="選択行の下に追加">＋ 行を追加</button>
@@ -134,6 +139,7 @@
   <script src="js/ui.js"></script>
   <script src="js/sample.js"></script>
   <script src="js/importer.js"></script>
+  <script src="js/textimport.js"></script>
   <script src="js/exporter.js"></script>
   <script src="js/report.js"></script>
   <script src="js/viewer.js"></script>
