@@ -75,7 +75,7 @@
     return { items: src.filter(blank), fromSelection: sel.length > 1 };
   }
 
-  function buildFillPrompt(p, items) {
+  function buildFillPrompt(p, items, spec) {
     return [
       'あなたはソフトウェアの評価（テスト）仕様書を作成する QA エンジニアです。',
       '次の評価項目の空欄（前提条件・手順・期待結果）を埋めてください。',
@@ -87,8 +87,8 @@
       '',
       formatRules([]),
       '',
-      '# 対象の仕様（補足があれば）',
-      '【必要に応じて仕様・画面の説明を貼り付けてください】',
+      '# 対象の仕様',
+      (spec || '').trim() || '【必要に応じて仕様・画面の説明を貼り付けてください】',
       '',
       '# 対象の項目',
       mdHeader(),
@@ -218,24 +218,25 @@
   async function start() {
     const p = TR.state.project;
     const ft = fillTargets(p);
-    const st = { mode: 'new', parsed: { rows: [], map: {} }, plan: [] };
+    // 表で複数行を選んでいて、その中に空欄のある行があれば「補完」から始める
+    const st = { mode: ft.fromSelection && ft.items.length ? 'fill' : 'new', parsed: { rows: [], map: {} }, plan: [] };
 
     const body = `
       <div class="ti-mode">
-        <label class="chk opt"><input type="radio" name="tiMode" value="new" checked>
+        <label class="chk opt"><input type="radio" name="tiMode" value="new" ${st.mode === 'new' ? 'checked' : ''}>
           <span><b>新しく項目を洗い出す</b><br><span class="muted small">仕様の説明から、評価項目の雛形をまとめて作ります。</span></span></label>
-        <label class="chk opt"><input type="radio" name="tiMode" value="fill">
+        <label class="chk opt"><input type="radio" name="tiMode" value="fill" ${st.mode === 'fill' ? 'checked' : ''}>
           <span><b>空欄を補完する</b><br><span class="muted small">小項目まで書いた行の前提条件・手順・期待結果を埋めます（入力済みのセルは変更しません）。</span></span></label>
       </div>
 
       <h3 class="sub">① 指示文を AI に渡す</h3>
-      <div class="ti-new">
-        <label class="field"><span>対象の説明（任意。空欄なら AI 側で貼り付けます）</span>
-          <textarea id="tiSpec" rows="4" placeholder="例：会員登録画面。メールアドレス・パスワード（8〜32文字、英数記号）・氏名を入力し、確認画面を経て登録。登録後に確認メールを送信…"></textarea></label>
+      <label class="field"><span>対象の仕様・説明（任意。書いておくと AI の精度が上がります。空欄なら AI 側で貼り付けます）</span>
+        <textarea id="tiSpec" rows="4" placeholder="例：会員登録画面。メールアドレス・パスワード（8〜32文字、英数記号）・氏名を入力し、確認画面を経て登録。登録後に確認メールを送信…"></textarea></label>
+      <div class="ti-new" ${st.mode === 'new' ? '' : 'hidden'}>
         <div class="ti-aspects">${ASPECTS.map(([a, on]) => `<label class="chk"><input type="checkbox" name="aspect" value="${U.esc(a)}" ${on ? 'checked' : ''}> ${U.esc(a)}</label>`).join('')}</div>
         <label class="field ti-count"><span>件数の目安（任意）</span><input id="tiCount" type="number" min="1" placeholder="例：30"></label>
       </div>
-      <div class="ti-fill" hidden>
+      <div class="ti-fill" ${st.mode === 'fill' ? '' : 'hidden'}>
         <p class="small">対象：<b>${ft.items.length}</b> 件（${ft.fromSelection ? '表で選択した行のうち' : '表示中の行のうち'}、小項目があり前提条件・手順・期待結果のどれかが空欄のもの）${ft.items.length > 80 ? '<br><span class="warn-ic">件数が多いため、80 件ずつに分けて行うのがおすすめです（表で行を選択してから開くと対象を絞れます）</span>' : ''}</p>
       </div>
       <div class="ti-copy">
@@ -248,7 +249,7 @@
       <textarea id="tiPaste" rows="6" placeholder="AI の出力（Markdown の表）や、Excel からコピーした表をそのまま貼り付けます"></textarea>
       <div class="import-opts">
         <label class="chk"><input type="checkbox" id="tiMark" checked> 取り込んだセルに「要確認」の印を付ける（確認したら右クリック →「確認済みにする」）</label>
-        <label class="chk ti-new"><input type="checkbox" id="tiRenum" checked> 既存と重複する ID は振り直す</label>
+        <label class="chk ti-new" ${st.mode === 'new' ? '' : 'hidden'}><input type="checkbox" id="tiRenum" checked> 既存と重複する ID は振り直す</label>
       </div>
       <div id="tiPreview"></div>`;
 
@@ -267,7 +268,7 @@
         });
         const refreshPrompt = () => {
           if (promptEdited) return;
-          U.$('#tiPrompt', el).value = st.mode === 'fill' ? buildFillPrompt(p, ft.items.slice(0, 80)) : buildNewPrompt(p, opts());
+          U.$('#tiPrompt', el).value = st.mode === 'fill' ? buildFillPrompt(p, ft.items.slice(0, 80), opts().spec) : buildNewPrompt(p, opts());
         };
         const refreshPreview = () => {
           st.parsed = parse(U.$('#tiPaste', el).value);
